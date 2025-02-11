@@ -1,23 +1,54 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon } from "@heroicons/react/24/outline";
+
+const MAJOR_LEAGUES = {
+  "Premier League": true, // England
+  "La Liga": true, // Spain
+  "Serie A": true, // Italy
+  Bundesliga: true, // Germany
+  "Ligue 1": true, // France
+  "UEFA Champions League": true,
+  "UEFA Europa League": true,
+  "UEFA Conference League": true,
+};
 
 const MatchDetails = ({ matchId, isOpen, onClose }) => {
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [lineupAvailable, setLineupAvailable] = useState(false);
 
   useEffect(() => {
     const fetchDetails = async () => {
       try {
         setLoading(true);
-        console.log("Fetching details for match:", matchId);
         const response = await axios.get(
           `http://localhost:8000/api/matches/${matchId}`
         );
 
         if (response.data?.data) {
-          setDetails(response.data.data);
-          console.log("details:", response.data.data);
+          const matchData = response.data.data;
+          console.log("Match data:", matchData);
+
+          // Check if this match is from a major league
+          const isFromMajorLeague =
+            MAJOR_LEAGUES[matchData.league?.name] || false;
+          console.log("League name:", matchData.league?.name);
+          console.log("Is major league:", isFromMajorLeague);
+
+          setDetails(matchData);
+
+          // Check lineup availability
+          const hasLineups =
+            matchData.lineups &&
+            matchData.lineups.length > 0 &&
+            matchData.lineups.some(
+              (lineup) => lineup.formation && lineup.startXI?.length > 0
+            );
+
+          console.log("Has lineups:", hasLineups);
+          setLineupAvailable(hasLineups);
         } else {
           console.error("No data in response:", response.data);
           setDetails(null);
@@ -41,6 +72,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     const isHome = lineup.team.id === details.teams.home.id;
     const teamColor = isHome ? "bg-[#a7d8a7]" : "bg-[#a7d8d8]";
 
+    // Parse formation (e.g., "3-4-2-1")
     const formationRows = lineup.formation.split("-").map(Number);
     const totalRows = formationRows.length + 1;
 
@@ -81,18 +113,19 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
             }
           }
 
-          // Styling lineup part: Calculate positions with better centering
+          // Calculate positions with better centering
           const topPercentage = (row * 120) / (totalRows + 1) + 10;
 
+          // Adjusted horizontal positioning with slightly larger gaps
           let leftPercentage;
           if (playersInRow === 1) {
-            leftPercentage = 50;
+            leftPercentage = 50; // Center single player
           } else if (playersInRow === 2) {
-            leftPercentage = position === 0 ? 30 : 70;
+            leftPercentage = position === 0 ? 30 : 70; // Increased gap (was 35/65)
           } else if (playersInRow === 3) {
-            leftPercentage = 20 + position * 30;
+            leftPercentage = 20 + position * 30; // Increased gap (was 25)
           } else if (playersInRow === 4) {
-            leftPercentage = 15 + position * 23.33;
+            leftPercentage = 15 + position * 23.33; // Increased gap (was 20)
           }
 
           return (
@@ -185,9 +218,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
               </div>
             </div>
           ))}
-          {teamEvents.length === 0 && (
-            <div className="text-gray-500 italic text-sm">No events</div>
-          )}
         </div>
       </div>
     );
@@ -203,7 +233,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     );
   };
 
-  // Add this helper function to format goal scorers
   const formatGoalScorers = (events, teamId) => {
     const goals = events
       .filter((event) => event.type === "Goal" && event.team.id === teamId)
@@ -215,6 +244,12 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     return goals.map((goal) => `${goal.name} ${goal.time}'`).join(", ");
   };
 
+  const NoLineupsMessage = () => (
+    <div className="text-center p-4 bg-gray-50 rounded-lg">
+      <p className="text-gray-600 mb-2">Lineup information is not available.</p>
+    </div>
+  );
+
   if (!isOpen) return null;
   if (loading)
     return <div className="p-4 text-center">Loading match details...</div>;
@@ -224,19 +259,17 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg w-full max-w-7xl max-h-[90vh] overflow-y-auto">
-        {/* Close button */}
         <div className="sticky top-0 bg-white p-4 border-b flex justify-between items-center">
           <h2 className="text-xl font-bold">Match Details</h2>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700"
           >
-            ✕
+            <XMarkIcon className="h-6 w-6" />
           </button>
         </div>
 
         <div className="p-6">
-          {/* Match Header */}
           <div className="mb-8">
             <div className="text-center text-sm text-gray-600 mb-6">
               {details.fixture.date &&
@@ -251,7 +284,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
             </div>
 
             <div className="grid grid-cols-3 items-center gap-4">
-              {/* Home Team */}
               <div className="text-right">
                 <div className="flex items-center justify-end gap-4 mb-2">
                   <div>
@@ -273,7 +305,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* Score */}
               <div className="text-center">
                 <div className="flex items-center justify-center gap-4">
                   <div className="text-4xl font-bold">{details.goals.home}</div>
@@ -284,11 +315,11 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                   {details.fixture.status.long === "Match Finished" ||
                   details.fixture.status.short === "FT" ||
                   details.fixture.status.short === "END" ||
-                  details.fixture.status.short === "AET" ||
-                  details.fixture.status.short === "PEN"
+                  details.fixture.status.short === "AET" || // After Extra Time
+                  details.fixture.status.short === "PEN" // Penalties
                     ? "Full Time"
                     : details.fixture.status.elapsed > 90
-                    ? `${details.fixture.status.elapsed}' (ET)`
+                    ? `${details.fixture.status.elapsed}' (ET)` // Extra Time
                     : details.fixture.status.long === "Halftime"
                     ? "Half Time"
                     : details.fixture.status.elapsed
@@ -297,7 +328,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* Away Team */}
               <div className="text-left">
                 <div className="flex items-center justify-start gap-4 mb-2">
                   <img
@@ -321,77 +351,33 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* Match Events Timeline */}
           {details.events && renderMatchEvents(details.events)}
 
-          {/* Formations and Team Details */}
-          {details.lineups && details.lineups.length > 0 && (
-            <div>
-              <h2 className="text-xl font-bold mb-6 pb-2 border-b border-gray-200">
-                Lineups
-              </h2>
-              <div className="grid grid-cols-2 gap-8">
-                {details.lineups.map((lineup, index) => (
-                  <div key={index}>
-                    {/* Team Name and Formation */}
-                    <div className="text-center mb-4">
-                      <h3 className="font-bold text-lg">{lineup.team.name}</h3>
-                      <p className="text-sm text-gray-600">
-                        Formation: {lineup.formation}
-                      </p>
-                    </div>
-
-                    {/* Formation Grid */}
-                    <div className="border border-gray-200 rounded-lg overflow-hidden mb-6">
-                      {renderFormationGrid(lineup)}
-                    </div>
-
-                    {/* Coach */}
-                    <div className="mb-4">
-                      <h4 className="font-semibold mb-2">Coach</h4>
-                      <div className="text-sm">{lineup.coach.name}</div>
-                    </div>
-
-                    {/* Starting XI */}
-                    <div className="mb-4">
-                      <h4 className="font-semibold mb-2">Starting XI</h4>
-                      <div className=" gap-2">
-                        {lineup.startXI?.map((player, playerIndex) => (
-                          <div
-                            key={playerIndex}
-                            className="flex items-center gap-2 text-sm"
-                          >
-                            <span className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center font-medium">
-                              {player.player.number}
-                            </span>
-                            <span>{player.player.name}</span>
-                          </div>
-                        ))}
+          <div className="space-y-6">
+            <h3 className="text-lg font-bold">Lineups</h3>
+            {lineupAvailable ? (
+              <div className="grid md:grid-cols-2 gap-6">
+                {details.lineups.map((team, index) => (
+                  <div key={index} className="bg-gray-50 rounded-lg p-4">
+                    <h4 className="font-semibold mb-2">{team.team.name}</h4>
+                    <p className="text-gray-600 mb-4">
+                      Formation: {team.formation}
+                    </p>
+                    {team.startXI && team.startXI.length > 0 && (
+                      <div>
+                        <h5 className="font-medium mb-2">Starting XI</h5>
+                        <div className="border border-gray-200 rounded-lg overflow-hidden mb-6">
+                          {renderFormationGrid(team)}
+                        </div>
                       </div>
-                    </div>
-
-                    {/* Substitutes */}
-                    <div className="mb-4">
-                      <h4 className="font-semibold mb-2">Substitutes</h4>
-                      <div className=" gap-2">
-                        {lineup.substitutes?.map((sub, subIndex) => (
-                          <div
-                            key={subIndex}
-                            className="flex items-center gap-2 text-sm"
-                          >
-                            <span className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center font-medium">
-                              {sub.player.number}
-                            </span>
-                            <span>{sub.player.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <NoLineupsMessage />
+            )}
+          </div>
         </div>
       </div>
     </div>
