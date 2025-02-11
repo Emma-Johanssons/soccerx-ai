@@ -1,6 +1,5 @@
-import requests
 from fastapi import HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime
 import aiohttp
 from ..config import settings
 import logging
@@ -11,8 +10,7 @@ class FootballAPIService:
     def __init__(self):
         self.base_url = "https://v3.football.api-sports.io"
         self.headers = {
-            "x-rapidapi-host": "v3.football.api-sports.io",
-            "x-rapidapi-key": settings.FOOTBALL_API_KEY
+            "x-apisports-key": settings.FOOTBALL_API_KEY
         }
 
     async def get_teams(self, search=None):
@@ -57,49 +55,79 @@ class FootballAPIService:
 
         except Exception as e:
             logger.error(f"Error fetching matches: {str(e)}")
-            raise e
+            raise
+
+    async def get_players(self, search=None):
+        """Fetch players, optionally filtered by search query"""
+        url = f"{self.base_url}/players"
+        params = {
+            "search": search
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers, params=params) as response:
+                    logger.info(f"Players API Status Code: {response.status}")
+                    if response.status == 200:
+                        data = await response.json()
+                        logger.info(f"Successfully fetched players. Count: {len(data.get('response', []))}")
+                        return data
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Error fetching players: {error_text}")
+                        return None
+        except Exception as e:
+            logger.error(f"Exception in get_players: {str(e)}")
+            raise
 
     async def get_match_details(self, match_id: int):
         """Fetch detailed information about a specific match"""
-        fixture_url = f"{self.base_url}/fixtures"
-        lineups_url = f"{self.base_url}/fixtures/lineups"
-        
         try:
             logger.info(f"Requesting match details for match {match_id}")
             
             async with aiohttp.ClientSession() as session:
-                # First get match details
-                async with session.get(
-                    fixture_url, 
-                    headers=self.headers, 
+                # Get match details first
+                fixture_response = await session.get(
+                    f"{self.base_url}/fixtures",
+                    headers=self.headers,
                     params={"id": match_id}
-                ) as response:
-                    if response.status != 200:
-                        logger.error(f"Fixture API Error: Status {response.status}")
-                        return None
-
-                    match_data = await response.json()
-                    logger.info(f"Match data received")
-
-                # Then get lineups in a separate request
-                async with session.get(
-                    lineups_url, 
-                    headers=self.headers, 
-                    params={"fixture": match_id}
-                ) as lineups_response:
-                    logger.info(f"Lineups API response status: {lineups_response.status}")
-                    
-                    if lineups_response.status == 200:
-                        lineups_data = await lineups_response.json()
-                        logger.info(f"Lineups response: {lineups_data}")
-                        
-                        if lineups_data and 'response' in lineups_data:
-                            if match_data and 'response' in match_data and match_data['response']:
-                                match_data['response'][0]['lineups'] = lineups_data['response']
-                                logger.info(f"Successfully added lineups to match data")
-                    else:
-                        logger.error(f"Failed to fetch lineups: {await lineups_response.text()}")
+                )
                 
+                if fixture_response.status != 200:
+                    logger.error(f"Fixture API Error: Status {fixture_response.status}")
+                    return None
+
+                match_data = await fixture_response.json()
+                match_info = match_data.get('response', [{}])[0]
+                league_id = match_info.get('league', {}).get('id')
+                league_name = match_info.get('league', {}).get('name')
+                
+                # Get lineups
+                lineups_response = await session.get(
+                    f"{self.base_url}/fixtures/lineups",
+                    headers=self.headers,
+                    params={"fixture": match_id}
+                )
+                
+                if lineups_response.status == 200:
+                    lineups_data = await lineups_response.json()
+                    
+                    if lineups_data.get('results', 0) > 0 and lineups_data.get('response'):
+                        logger.info(f"Found lineup data for {len(lineups_data['response'])} teams")
+                        match_data['response'][0]['lineups'] = lineups_data['response']
+                    else:
+                        logger.info(f"No lineup data available yet for match {match_id} in {league_name}")
+                        logger.info("This could be because:")
+                        logger.info("1. Lineups haven't been announced yet (usually 20-40 min before kickoff)")
+                        logger.info("2. The league doesn't provide lineup data")
+                        logger.info("3. The match hasn't started yet")
+                        logger.info(f"League ID: {league_id}, League Name: {league_name}")
+                        match_data['response'][0]['lineups'] = []
+                else:
+                    error_text = await lineups_response.text()
+                    logger.error(f"Failed to fetch lineups: {error_text}")
+                    match_data['response'][0]['lineups'] = []
+
                 return match_data
 
         except Exception as e:
@@ -113,7 +141,7 @@ class FootballAPIService:
             params = {
                 "team": team_id,
                 "next": limit,
-                "status": "NS-TBD"  # Not Started matches only
+                "status": "NS-TBD"  #NS = NOT STARTED
             }
 
             async with aiohttp.ClientSession() as session:

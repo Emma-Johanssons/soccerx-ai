@@ -63,7 +63,7 @@ async def get_match_details(match_id: int):
         
         response = await football_api.get_match_details(match_id)
         
-        if response and 'response' in response and response['response']:
+        if response and 'response' in response:
             return {
                 "status": "success",
                 "data": response['response'][0],
@@ -74,7 +74,10 @@ async def get_match_details(match_id: int):
             
     except Exception as e:
         logger.error(f"Error fetching match details: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @router.get("/league/{league_id}")
 async def get_league_matches(league_id: int, db: Session = Depends(get_db)):
@@ -91,3 +94,4 @@ async def get_league_matches(league_id: int, db: Session = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+

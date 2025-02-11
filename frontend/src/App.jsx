@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Layout from "./components/Layout/Layout";
+import MatchDetails from "./components/Match/MatchDetails";
 
 function App() {
   return (
