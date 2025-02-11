@@ -39,7 +39,7 @@ const MatchTabs = () => {
 
           <button
             onClick={() => setShowAllLeagues(!showAllLeagues)}
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+            className="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded-full font-medium transition-colors"
           >
             {showAllLeagues ? "Show Major Leagues" : "View All Leagues"}
           </button>

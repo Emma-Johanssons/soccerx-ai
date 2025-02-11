@@ -1,17 +1,16 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import MatchDetails from "./MatchDetails";
 
 const MAJOR_LEAGUES = {
+  "UEFA Champions League": true, // ID: 2
   "Premier League": true, // ID: 39
-  "DFB Pokal": true, // ID: 81
-  "Copa del Rey": true, // ID: 143
-  Bundesliga: true, // ID: 78
   "La Liga": true, // ID: 140
+  Bundesliga: true, // ID: 78
   "Serie A": true, // ID: 135
   "Ligue 1": true, // ID: 61
-  "Champions League": true, // ID: 2
-  "Europa League": true, // ID: 3
-  "Coppa Italia": true, // ID: 137
+  "UEFA Europa League": true, // ID: 3
+  "UEFA Europa Conference League": true, // ID: 848
 };
 
 const MatchList = ({ completed = false, showAllLeagues }) => {
@@ -22,33 +21,28 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
     Object.keys(MAJOR_LEAGUES)
   );
   const [allLeagues, setAllLeagues] = useState([]);
+  const [selectedMatchId, setSelectedMatchId] = useState(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   useEffect(() => {
     const fetchMatches = async () => {
       try {
         setLoading(true);
-        console.log(
-          `Fetching matches for ${completed ? "completed" : "today"} tab`
-        );
-
-        const leaguesToFetch = showAllLeagues ? [] : Object.keys(MAJOR_LEAGUES);
 
         const response = await axios.get(
-          `http://localhost:8000/api/matches?completed=${completed}&leagues=${leaguesToFetch.join(
-            ","
-          )}`
+          `http://localhost:8000/api/matches?completed=${completed}`
         );
 
         const matchesData = response.data.data || [];
         const availableLeagues = new Set();
 
         const groupedMatches = matchesData.reduce((acc, match) => {
-          if (!match.league || !match.league.name) return acc;
+          if (!match.league?.name) return acc;
 
           const leagueName = match.league.name;
           const matchStatus = match.fixture?.status?.short || "";
 
-          if (leagueName === "Premier League" && match.league.id !== 39) {
+          if (!showAllLeagues && !MAJOR_LEAGUES[leagueName]) {
             return acc;
           }
 
@@ -90,7 +84,13 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
         setMatches(groupedMatches);
 
         if (showAllLeagues) {
-          setAllLeagues(Array.from(availableLeagues));
+          const leaguesList = Array.from(availableLeagues);
+          setAllLeagues(leaguesList);
+          setSelectedLeagues(
+            leaguesList.filter((league) => MAJOR_LEAGUES[league])
+          );
+        } else {
+          setSelectedLeagues(Object.keys(MAJOR_LEAGUES));
         }
       } catch (error) {
         console.error("Error fetching matches:", error);
@@ -102,6 +102,11 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
 
     fetchMatches();
   }, [completed, showAllLeagues]);
+
+  const handleMatchClick = (matchId) => {
+    setSelectedMatchId(matchId);
+    setIsDetailsOpen(true);
+  };
 
   const toggleLeagueSelection = (league) => {
     setSelectedLeagues((prev) => {
@@ -168,7 +173,10 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
             <div className="divide-y divide-gray-200">
               {leagueMatches.map((match) => (
                 <div key={match.id}>
-                  <div className="p-4 hover:bg-gray-50 transition-all cursor-pointer">
+                  <div
+                    className="p-4 hover:bg-gray-50 transition-all cursor-pointer"
+                    onClick={() => handleMatchClick(match.id)}
+                  >
                     <div className="flex items-center justify-between">
                       <div className="w-20 text-center relative">
                         <div className="text-sm font-medium text-gray-900">
@@ -231,6 +239,17 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
             </div>
           </div>
         ))
+      )}
+
+      {selectedMatchId && (
+        <MatchDetails
+          matchId={selectedMatchId}
+          isOpen={isDetailsOpen}
+          onClose={() => {
+            setIsDetailsOpen(false);
+            setSelectedMatchId(null);
+          }}
+        />
       )}
     </div>
   );
