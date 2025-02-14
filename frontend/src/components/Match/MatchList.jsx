@@ -3,14 +3,14 @@ import axios from "axios";
 import MatchDetails from "./MatchDetails";
 
 const MAJOR_LEAGUES = {
-  "UEFA Champions League": true, // ID: 2
-  "Premier League": true, // ID: 39
-  "La Liga": true, // ID: 140
-  Bundesliga: true, // ID: 78
-  "Serie A": true, // ID: 135
-  "Ligue 1": true, // ID: 61
-  "UEFA Europa League": true, // ID: 3
-  "UEFA Europa Conference League": true, // ID: 848
+  "UEFA Champions League": { id: 2, enabled: true },
+  "Premier League": { id: 39, enabled: true }, // English Premier League
+  "La Liga": { id: 140, enabled: true },
+  Bundesliga: { id: 78, enabled: true },
+  "Serie A": { id: 135, enabled: true },
+  "Ligue 1": { id: 61, enabled: true },
+  "UEFA Europa League": { id: 3, enabled: true },
+  "UEFA Europa Conference League": { id: 848, enabled: true },
 };
 
 const MatchList = ({ completed = false, showAllLeagues }) => {
@@ -37,12 +37,16 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
         const availableLeagues = new Set();
 
         const groupedMatches = matchesData.reduce((acc, match) => {
-          if (!match.league?.name) return acc;
+          if (!match.league?.name || !match.league?.id) return acc;
 
           const leagueName = match.league.name;
+          const leagueId = match.league.id;
           const matchStatus = match.fixture?.status?.short || "";
 
-          if (!showAllLeagues && !MAJOR_LEAGUES[leagueName]) {
+          // Check both league name and ID match
+          const isCorrectLeague = MAJOR_LEAGUES[leagueName]?.id === leagueId;
+
+          if (!showAllLeagues && !isCorrectLeague) {
             return acc;
           }
 
@@ -87,7 +91,15 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
           const leaguesList = Array.from(availableLeagues);
           setAllLeagues(leaguesList);
           setSelectedLeagues(
-            leaguesList.filter((league) => MAJOR_LEAGUES[league])
+            leaguesList.filter(
+              (league) =>
+                MAJOR_LEAGUES[league]?.enabled &&
+                matchesData.some(
+                  (match) =>
+                    match.league?.name === league &&
+                    match.league?.id === MAJOR_LEAGUES[league].id
+                )
+            )
           );
         } else {
           setSelectedLeagues(Object.keys(MAJOR_LEAGUES));

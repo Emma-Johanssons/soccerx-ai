@@ -234,12 +234,17 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
   };
 
   const formatGoalScorers = (events, teamId) => {
+    if (!events || !Array.isArray(events)) return "";
+
     const goals = events
       .filter((event) => event.type === "Goal" && event.team.id === teamId)
       .map((event) => ({
-        name: event.player.name.split(" ").pop(), // Only show last name
-        time: event.time.elapsed,
-      }));
+        name: event.player?.name
+          ? event.player.name.split(" ").pop()
+          : "Unknown",
+        time: event.time?.elapsed || 0,
+      }))
+      .filter((goal) => goal.name && goal.time); // Filter out any invalid goals
 
     return goals.map((goal) => `${goal.name} ${goal.time}'`).join(", ");
   };

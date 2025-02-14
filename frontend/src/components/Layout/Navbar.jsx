@@ -10,7 +10,12 @@ const Navbar = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
           {/* Logo */}
-          <div className="text-white font-bold text-xl">SoccerX</div>
+          <Link
+            to="/"
+            className="text-white font-bold text-xl hover:text-gray-200 transition-colors"
+          >
+            <h1>SoccerX</h1>
+          </Link>
 
           {/* Desktop Buttons */}
           <div className="hidden md:flex items-center space-x-4">
@@ -26,6 +31,7 @@ const Navbar = () => {
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="md:hidden text-white focus:outline-none"
+            aria-label={isOpen ? "Close menu" : "Open menu"}
           >
             {isOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
