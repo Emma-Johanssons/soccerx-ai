@@ -255,6 +255,32 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     </div>
   );
 
+  const renderSubstitutions = (lineup) => {
+    if (!lineup?.substitutes) return null;
+
+    return (
+      <div className="mt-4">
+        <h5 className="font-medium mb-2">Substitutes</h5>
+        <div className="mb-1">
+          {lineup.substitutes.map((sub, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-2 p-2 bg-white rounded"
+            >
+              <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center text-sm">
+                {sub.player.number}
+              </div>
+              <span className="text-sm">{sub.player.name}</span>
+              <span className="text-xs text-gray-500 ml-auto">
+                {sub.player.pos}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   if (!isOpen) return null;
   if (loading)
     return <div className="p-4 text-center">Loading match details...</div>;
@@ -365,9 +391,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                 {details.lineups.map((team, index) => (
                   <div key={index} className="bg-gray-50 rounded-lg p-4">
                     <h4 className="font-semibold mb-2">{team.team.name}</h4>
-                    <p className="text-gray-600 mb-4">
-                      Formation: {team.formation}
-                    </p>
+
                     {team.startXI && team.startXI.length > 0 && (
                       <div>
                         <h5 className="font-medium mb-2">Starting XI</h5>
@@ -376,6 +400,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                         </div>
                       </div>
                     )}
+                    {renderSubstitutions(team)}
                   </div>
                 ))}
               </div>

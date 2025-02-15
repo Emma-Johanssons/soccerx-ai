@@ -1,10 +1,8 @@
 import requests
-from requests.exceptions import RequestException, HTTPError, Timeout, ConnectionError
 from fastapi import HTTPException
 from dotenv import load_dotenv
 from datetime import datetime
 import aiohttp
-from aiohttp import ClientError
 import asyncio
 from ..config import settings
 
@@ -319,54 +317,79 @@ class FootballAPIService:
 
     async def get_match_details(self, match_id: int):
         """
-        Fetch detailed information about a specific match.
+        Get detailed match information including lineups and substitutions.
         
         Args:
             match_id (int): The unique identifier of the match
             
         Returns:
-            dict: Detailed match information including lineups if available,
-                 or None if request fails
+            dict: Match details including:
+                - Basic match information
+                - Lineups for both teams
+                - Starting XI
+                - Substitutes
+                - Coach information
+                - Formation
+                - Events (including substitutions)
+            Returns None if request fails
             
         Raises:
             HTTPException: If API request fails or times out
         """
         fixture_url = f"{self.base_url}/fixtures"
         lineups_url = f"{self.base_url}/fixtures/lineups"
+        events_url = f"{self.base_url}/fixtures/events"
         
         try:
-            params = {
-                "id": match_id,
-                "fixture": match_id  
-            }
-            
-            
             async with aiohttp.ClientSession() as session:
-                
-                async with session.get(fixture_url, headers=self.headers, params={"id": match_id}) as response:
+                # Get match details
+                async with session.get(
+                    fixture_url, 
+                    headers=self.headers, 
+                    params={"id": match_id}
+                ) as response:
                     if response.status != 200:
                         return None
 
                     match_data = await response.json()
+                    if not match_data.get('response'):
+                        return None
                     
+                    # Check if match is scheduled/cancelled
                     fixture_status = match_data.get('response', [{}])[0].get('fixture', {}).get('status', {}).get('short')
-                    if fixture_status not in ['TBD', 'CANC', 'PST', 'SUSP']:
-                        # Use different params for lineups endpoint
-                        lineup_params = {"fixture": match_id}
-                        async with session.get(lineups_url, headers=self.headers, params=lineup_params) as lineups_response:
-                            
-                            if lineups_response.status == 200:
-                                lineups_data = await lineups_response.json()
-                                
-                                if lineups_data and 'response' in lineups_data and lineups_data['response']:
-                                    if match_data and 'response' in match_data and match_data['response']:
-                                        match_data['response'][0]['lineups'] = lineups_data['response']
-                                        
-                    else:
-                        if match_data and 'response' in match_data and match_data['response']:
-                            match_data['response'][0]['lineups'] = []
+                    if fixture_status in ['TBD', 'CANC', 'PST', 'SUSP']:
+                        match_data['response'][0]['lineups'] = []
+                        match_data['response'][0]['events'] = []
+                        return match_data
+                    
+                    # Get lineups
+                    async with session.get(
+                        lineups_url, 
+                        headers=self.headers, 
+                        params={"fixture": match_id}
+                    ) as lineups_response:
+                        if lineups_response.status == 200:
+                            lineups_data = await lineups_response.json()
+                            if lineups_data and 'response' in lineups_data:
+                                match_data['response'][0]['lineups'] = lineups_data['response']
                 
-                return match_data
+                    # Get events (including substitutions)
+                    async with session.get(
+                        events_url,
+                        headers=self.headers,
+                        params={"fixture": match_id}
+                    ) as events_response:
+                        if events_response.status == 200:
+                            events_data = await events_response.json()
+                            if events_data and 'response' in events_data:
+                                # Filter for substitution events
+                                substitutions = [
+                                    event for event in events_data['response']
+                                    if event.get('type') == 'subst'
+                                ]
+                                match_data['response'][0]['substitutions'] = substitutions
+                
+                    return match_data
 
         except aiohttp.ClientError:
             raise HTTPException(status_code=500, detail="Client error")
