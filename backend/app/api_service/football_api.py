@@ -249,38 +249,17 @@ class FootballAPIService:
             raise HTTPException(status_code=504,detail="Timeout error")
       
 
-    async def get_teams(self, search=None):
-        """
-        Search for teams by name.
-        
-        Args:
-            search (str, optional): Team name to search for
-            
-        Returns:
-            dict: Team search results or None if request fails
-            
-        Raises:
-            HTTPException: If API request fails or times out
-        """        
+    async def get_teams(self, league_id: int, season: int = 2024):
+        """Get teams for a specific league and season"""
         url = f"{self.base_url}/teams"
-        params = {}
-        if search:
-            params["search"] = search
+        params = {
+            "league": league_id,
+            "season": season
+        }
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.headers, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data
-                    else:
-                        return None
-                    
-        except aiohttp.ClientError:
-            raise HTTPException(status_code=500, detail="Client error")
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code= 504, detail="Timeout error")
-        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self.headers, params=params) as response:
+                return await response.json()
 
     async def get_players(self, search=None):
         """
@@ -686,4 +665,24 @@ class FootballAPIService:
             raise HTTPException(status_code=500, detail="Client error")
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504,detail="Timeout error")
+       
+
+    async def get_countries(self):
+        """Get all countries from API-FOOTBALL"""
+        try:
+            url = f"{self.base_url}/countries"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers) as response:
+                    if response.status != 200:
+                        raise HTTPException(
+                            status_code=response.status,
+                            detail="Failed to fetch countries"
+                        )
+                        
+                    data = await response.json()
+                    return data
+                    
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
        
