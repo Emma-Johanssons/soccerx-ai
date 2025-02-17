@@ -1,4 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from ..database import get_db
+from ..sql_models.models import League, Team
 from ..api_service.football_api import FootballAPIService
 import logging
 
@@ -51,13 +54,54 @@ async def get_leagues():
         )
 
 @router.get("/{league_id}")
-async def get_league(league_id: int):
+async def get_league(league_id: int, db: Session = Depends(get_db)):
     try:
-        logger.info(f"Fetching league with ID: {league_id}")
-        # Get current season
-        current_season = 2024  # You can make this dynamic if needed
+        logger.info(f"Fetching league with ID: {league_id} from database")
         
-        # Get league information
+        # First try to get from database
+        league = db.query(League).filter(League.id == league_id).first()
+        
+        if league:
+            # Get teams for this league from database
+            teams = db.query(Team).filter(Team.league == league_id).all()
+            
+            # Get standings from API (since they change frequently)
+            standings_response = await football_api.get_standings(league_id, 2024)
+            
+            return {
+                "status": "success",
+                "data": {
+                    "league": {
+                        "id": league.id,
+                        "name": league.name,
+                        "logo": league.logo,
+                        "type": "League"
+                    },
+                    "country": {
+                        "name": league.country
+                    },
+                    "seasons": [
+                        {
+                            "year": 2024,
+                            "current": True,
+                            "standings": standings_response['response'][0]['league']['standings'] if standings_response and 'response' in standings_response else []
+                        }
+                    ],
+                    "teams": [
+                        {
+                            "id": team.id,
+                            "name": team.name,
+                            "logo": team.logo_url,
+                            "venue_name": team.venue_name,
+                            "venue_capacity": team.venue_capacity
+                        } for team in teams
+                    ]
+                },
+                "message": "League retrieved successfully"
+            }
+        
+        # If not in database, fallback to API
+        logger.info(f"League not found in database, fetching from API")
         response = await football_api.get_leagues()
         
         if response and 'response' in response:
@@ -69,10 +113,8 @@ async def get_league(league_id: int):
             )
             
             if league_data:
-                # Get standings for the league
-                standings_response = await football_api.get_standings(league_id, current_season)
+                standings_response = await football_api.get_standings(league_id, 2024)
                 
-                # Combine league data with standings
                 return {
                     "status": "success",
                     "data": {
@@ -80,7 +122,7 @@ async def get_league(league_id: int):
                         "country": league_data['country'],
                         "seasons": [
                             {
-                                "year": current_season,
+                                "year": 2024,
                                 "current": True,
                                 "standings": standings_response['response'][0]['league']['standings'] if standings_response and 'response' in standings_response else []
                             }

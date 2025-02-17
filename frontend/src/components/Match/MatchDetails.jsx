@@ -255,6 +255,30 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     </div>
   );
 
+  const renderCoaches = (lineup) => {
+    if (!lineup?.coach) return null;
+
+    return (
+      <div className="mt-4 mb-4">
+        <h5 className="font-medium mb-2">Coach</h5>
+        <div className="flex items-center gap-3 p-2 bg-white rounded">
+          {lineup.coach.name && (
+            <>
+              {lineup.coach.photo && (
+                <img
+                  src={lineup.coach.photo}
+                  alt={lineup.coach.name}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              )}
+              <span className="text-sm font-medium">{lineup.coach.name}</span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const renderSubstitutions = (lineup) => {
     if (!lineup?.substitutes) return null;
 
@@ -299,7 +323,6 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
             <XMarkIcon className="h-6 w-6" />
           </button>
         </div>
-
         <div className="p-6">
           <div className="mb-8">
             <div className="text-center text-sm text-gray-600 mb-6">
@@ -400,6 +423,8 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                         </div>
                       </div>
                     )}
+                    {renderCoaches(team)}
+
                     {renderSubstitutions(team)}
                   </div>
                 ))}
