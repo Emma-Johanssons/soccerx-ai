@@ -28,7 +28,7 @@ async def get_player_details(
         logger.info(f"Attempting to fetch detailed stats for player {player_id}")
         
         # Get player statistics first
-        stats_response = await football_api.get_player_statistics(
+        stats_response =  football_api.get_player_statistics(
             player_id=player_id,
             season=current_season
         )
@@ -42,7 +42,7 @@ async def get_player_details(
             }
 
         # If no statistics found, get basic player info from squad
-        squad_response = await football_api.get_team_squad(team_id, current_season)
+        squad_response = football_api.get_team_squad(team_id, current_season)
         if not squad_response or 'response' not in squad_response:
             logger.error(f"Failed to get squad data for team {team_id}")
             raise HTTPException(status_code=404, detail="Team not found")
@@ -81,7 +81,7 @@ async def get_player_statistics(
 
         logger.info(f"Fetching statistics for player {player_id}, season {season}")
         
-        stats_response = await football_api.get_player_statistics(
+        stats_response =  football_api.get_player_statistics(
             season=season,
             player_id=player_id,
             team=team_id

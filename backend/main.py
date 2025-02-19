@@ -12,14 +12,14 @@ from app.services.background_tasks import scheduler, schedule_data_sync
 from app.services.data_sync import DataSyncService
 from app.api_service.football_api import FootballAPIService
 
-async def initial_data_load():
+def initial_data_load():
     """Load initial data into the database"""
     logger.info("Starting initial data load...")
     db = SessionLocal()
     try:
         football_api = FootballAPIService()
         sync_service = DataSyncService(db, football_api)
-        await sync_service.sync_all()  # This will populate all tables
+        sync_service.sync_all()  # This will populate all tables
         logger.info("Initial data load completed successfully")
     except Exception as e:
         logger.error(f"Error loading initial data: {e}")
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     recreate_tables()
     
     # Load initial data
-    await initial_data_load()
+    initial_data_load()
     
     # Schedule future updates
     schedule_data_sync()

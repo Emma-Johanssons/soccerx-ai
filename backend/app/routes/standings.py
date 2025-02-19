@@ -10,7 +10,7 @@ football_api = FootballAPIService()
 async def get_standings(league_id: int, season: int):
     try:
         logger.info(f"Fetching standings for league {league_id}, season {season}")
-        response = await football_api.get_standings(league_id, season)
+        response =  football_api.get_standings(league_id, season)
         
         if response and 'response' in response:
             standings = response['response'][0]['league']['standings'][0]

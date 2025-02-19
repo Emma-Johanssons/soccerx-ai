@@ -11,21 +11,16 @@ import Navbar from "./components/Layout/Navbar";
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Home />} />
-          <Route path="/league/:id" element={<LeaguePage />} />
-          <Route path="/team/:id" element={<TeamPage />} />
-          <Route
-            path="/team/:teamId/player/:playerId"
-            element={<PlayerPage />}
-          />
-          <Route path="/search" element={<SearchResults />} />
-          <Route path="/match/:matchId" element={<MatchDetails />} />
-        </Route>
-      </Routes>
-    </Router>
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Home />} />
+        <Route path="/league/:id" element={<LeaguePage />} />
+        <Route path="/team/:id" element={<TeamPage />} />
+        <Route path="/team/:teamId/player/:playerId" element={<PlayerPage />} />
+        <Route path="/search" element={<SearchResults />} />
+        <Route path="/match/:matchId" element={<MatchDetails />} />
+      </Route>
+    </Routes>
   );
 }
 
