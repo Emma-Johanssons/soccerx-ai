@@ -13,12 +13,12 @@ football_api = FootballAPIService()
 @router.get("/test-api")
 async def test_api():
     """Test endpoint to verify API connectivity"""
-    return await football_api.test_api()
+    return football_api.test_api()
 
 @router.get("/")
 async def get_matches(completed: bool = False, db: Session = Depends(get_db)):
     try:
-        matches = await football_api.get_matches(completed=completed)
+        matches = football_api.get_matches(completed=completed)
         return {
             "status": "success",
             "data": matches.get('response', []),
@@ -69,7 +69,7 @@ async def get_match_details(match_id: int):
     try:
         logger.info(f"Fetching match details for match {match_id}")
         
-        response = await football_api.get_match_details(match_id)
+        response = football_api.get_match_details(match_id)
         
         if response and 'response' in response:
             return {
@@ -91,7 +91,7 @@ async def get_match_details(match_id: int):
 async def get_live_matches(db: Session = Depends(get_db)):
     try:
         # Get live matches from the football API
-        matches = await football_api.get_matches(live=True)
+        matches = football_api.get_matches(live=True)
         return {
             "status": "success",
             "data": matches.get('response', []),

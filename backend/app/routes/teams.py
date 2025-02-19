@@ -27,7 +27,7 @@ async def get_teams(db: Session = Depends(get_db)):
     
     try:
         logger.info("Fetching all teams")
-        response = await football_api.get_team(team_id=None)
+        response = football_api.get_team(team_id=None)
         return {
             "status": "success",
             "data": response.get('response', []),
@@ -50,7 +50,7 @@ async def get_team(team_id: int, db: Session = Depends(get_db)):
     
     try:
         logger.info(f"Fetching team with ID: {team_id}")
-        response = await football_api.get_team(team_id=team_id)
+        response =  football_api.get_team(team_id=team_id)
         
         if not response.get('response'):
             raise HTTPException(
@@ -80,10 +80,10 @@ async def get_team_matches(team_id: int):
         logger.info(f"Fetching matches for team {team_id}")
         
         # Fetch upcoming matches (next 10)
-        upcoming_response = await football_api.get_team_matches(team_id, next=10)
+        upcoming_response =  football_api.get_team_matches(team_id, next=10)
         
         # Fetch completed matches (last 10)
-        completed_response = await football_api.get_team_matches(team_id, last=10)
+        completed_response =  football_api.get_team_matches(team_id, last=10)
         
         return {
             "status": "success",
@@ -106,7 +106,7 @@ async def get_team_players(team_id: int):
         if datetime.now().month < 8:
             current_season -= 1
 
-        response = await football_api.get_team_squad(team_id, current_season)
+        response =  football_api.get_team_squad(team_id, current_season)
         
         if not response or 'response' not in response:
             logger.error(f"No squad data found for team {team_id}")
@@ -148,7 +148,7 @@ async def get_team_player(team_id: int, player_id: int):
             current_season -= 1
 
         # First try to get player statistics
-        stats_response = await football_api.get_player_statistics(
+        stats_response =  football_api.get_player_statistics(
             season=current_season,
             player_id=player_id
         )
@@ -172,7 +172,7 @@ async def get_team_player(team_id: int, player_id: int):
         
         # If no statistics, try to get basic player info from squad
         logger.info("No statistics found, fetching from squad")
-        squad_response = await football_api.get_team_squad(team_id, current_season)
+        squad_response = football_api.get_team_squad(team_id, current_season)
         
         if squad_response and 'response' in squad_response:
             squad_data = squad_response['response'][0].get('players', [])
@@ -213,7 +213,7 @@ async def get_player_history(team_id: int, player_id: int):
         for season in seasons:
             try:
                 logger.info(f"Fetching stats for season {season}")
-                response = await football_api.get_player_statistics(
+                response =  football_api.get_player_statistics(
                     season=season,
                     player_id=player_id
                 )
@@ -357,7 +357,7 @@ async def get_team_statistics(team_id: int):
             logger.info(f"Checking league {league_id} for team {team_id}")
             
             # Try to get statistics for this league
-            response = await football_api.get_team_statistics(team_id, league_id, current_season)
+            response =  football_api.get_team_statistics(team_id, league_id, current_season)
             
             if response and 'response' in response:
                 # Check if we have actual statistics (not all zeros)

@@ -12,13 +12,13 @@ class DataSyncService:
         self.football_api = football_api
         self.major_leagues = self.football_api.major_leagues
 
-    async def should_sync(self, sync_type: str) -> bool:
+    def should_sync(self, sync_type: str) -> bool:
         last_sync = self.db.query(LastSync).filter(LastSync.sync_type == sync_type).first()
         if not last_sync:
             return True
         return datetime.now() - last_sync.last_sync_time > timedelta(days=1)
 
-    async def update_sync_time(self, sync_type: str):
+    def update_sync_time(self, sync_type: str):
         last_sync = self.db.query(LastSync).filter(LastSync.sync_type == sync_type).first()
         if last_sync:
             last_sync.last_sync_time = datetime.now()
@@ -26,11 +26,11 @@ class DataSyncService:
             self.db.add(LastSync(sync_type=sync_type))
         self.db.commit()
 
-    async def sync_countries(self):
-        if not await self.should_sync('countries'):
+    def sync_countries(self):
+        if not self.should_sync('countries'):
             return
         
-        response = await self.football_api.get_countries()
+        response = self.football_api.get_countries()
         if response and 'response' in response:
             for country_data in response['response']:
                 country = Country(
@@ -44,14 +44,14 @@ class DataSyncService:
                     self.db.add(country)
             
             self.db.commit()
-            await self.update_sync_time('countries')
+            self.update_sync_time('countries')
             logger.info("Countries synced successfully")
 
-    async def sync_leagues(self):
-        if not await self.should_sync('leagues'):
+    def sync_leagues(self):
+        if not self.should_sync('leagues'):
             return
             
-        response = await self.football_api.get_leagues()
+        response = self.football_api.get_leagues()
         if response and 'response' in response:
             for league_data in response['response']:
                 league = League(
@@ -69,12 +69,12 @@ class DataSyncService:
                     self.db.add(league)
             
             self.db.commit()
-            await self.update_sync_time('leagues')
+            self.update_sync_time('leagues')
             logger.info("Leagues synced successfully")
 
-    async def sync_teams(self):
+    def sync_teams(self):
         logger.info("Syncing teams...")
-        if not await self.should_sync('teams'):
+        if not self.should_sync('teams'):
             return
 
         # Get country mapping first
@@ -86,7 +86,7 @@ class DataSyncService:
         for league_name, league_info in self.major_leagues.items():
             logger.info(f"Syncing teams for {league_name} with ID {league_info['id']}")
             try:
-                response = await self.football_api.get_teams(league_info['id'], league_info['season'])
+                response = self.football_api.get_teams(league_info['id'], league_info['season'])
                 logger.info(f"Found {len(response.get('response', []))} teams for {league_name}")
                 
                 if response and 'response' in response:
@@ -131,13 +131,13 @@ class DataSyncService:
                 logger.error(f"Error syncing teams for league {league_name}: {str(e)}")
                 continue
         
-        await self.update_sync_time('teams')
+        self.update_sync_time('teams')
 
-    async def sync_all(self):
+    def sync_all(self):
         try:
-            await self.sync_countries()
-            await self.sync_leagues()
-            await self.sync_teams()
+            self.sync_countries()
+            self.sync_leagues()
+            self.sync_teams()
             logger.info("All data synced successfully")
         except Exception as e:
             logger.error(f"Error during sync: {str(e)}")

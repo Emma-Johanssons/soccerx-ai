@@ -13,7 +13,7 @@ football_api = FootballAPIService()
 async def get_leagues():
     try:
         logger.info("Starting leagues fetch request")
-        response = await football_api.get_leagues()
+        response =  football_api.get_leagues()
         
         logger.info(f"Raw API response received: {response}")
         
@@ -66,7 +66,7 @@ async def get_league(league_id: int, db: Session = Depends(get_db)):
             teams = db.query(Team).filter(Team.league == league_id).all()
             
             # Get standings from API (since they change frequently)
-            standings_response = await football_api.get_standings(league_id, 2024)
+            standings_response =  football_api.get_standings(league_id, 2024)
             
             return {
                 "status": "success",
@@ -102,7 +102,7 @@ async def get_league(league_id: int, db: Session = Depends(get_db)):
         
         # If not in database, fallback to API
         logger.info(f"League not found in database, fetching from API")
-        response = await football_api.get_leagues()
+        response = football_api.get_leagues()
         
         if response and 'response' in response:
             leagues = response['response']
@@ -113,7 +113,7 @@ async def get_league(league_id: int, db: Session = Depends(get_db)):
             )
             
             if league_data:
-                standings_response = await football_api.get_standings(league_id, 2024)
+                standings_response =  football_api.get_standings(league_id, 2024)
                 
                 return {
                     "status": "success",
