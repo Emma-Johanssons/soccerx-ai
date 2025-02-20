@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
+
 import { ChevronUpIcon, ChevronDownIcon } from "@heroicons/react/24/outline";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 
@@ -15,14 +17,24 @@ const MAJOR_LEAGUES = {
 };
 
 const MatchDetails = ({ matchId, isOpen, onClose }) => {
+  const { id } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lineupAvailable, setLineupAvailable] = useState(false);
+  const [error, setError] = useState(null);
+  const [teamData, setTeamData] = useState(null);
+  const [teamStats, setTeamStats] = useState(null);
+  const [players, setPlayers] = useState([]);
+  const [season, setSeason] = useState(null);
 
   useEffect(() => {
     const fetchDetails = async () => {
       try {
         setLoading(true);
+        setError(null);
+
         const response = await axios.get(
           `http://localhost:8000/api/matches/${matchId}`
         );
@@ -49,12 +61,41 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
 
           console.log("Has lineups:", hasLineups);
           setLineupAvailable(hasLineups);
+
+          // Fetch team data if not provided
+          const homeTeamResponse = await axios.get(
+            `http://localhost:8000/api/teams/${matchData.teams.home.id}`
+          );
+          const awayTeamResponse = await axios.get(
+            `http://localhost:8000/api/teams/${matchData.teams.away.id}`
+          );
+
+          setTeamData({
+            home: homeTeamResponse.data.data,
+            away: awayTeamResponse.data.data,
+          });
+
+          // Fetch team statistics
+          const statsResponse = await axios.get(
+            `http://localhost:8000/api/teams/${matchData.teams.home.id}/statistics`
+          );
+          setTeamStats(statsResponse.data.data);
+
+          // Fetch players if needed
+          const playersResponse = await axios.get(
+            `http://localhost:8000/api/teams/${matchData.teams.home.id}/players`
+          );
+          setPlayers(playersResponse.data.data);
+
+          // Assuming the season is part of the match data
+          setSeason(matchData.season);
         } else {
           console.error("No data in response:", response.data);
           setDetails(null);
         }
       } catch (error) {
         console.error("Error fetching match details:", error);
+        setError("Failed to load match details");
         setDetails(null);
       } finally {
         setLoading(false);
@@ -279,6 +320,17 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
     );
   };
 
+  const handleTeamClick = (teamId, teamData) => {
+    navigate(`/team/${teamId}`, {
+      state: {
+        teamData: {
+          ...teamData,
+          season: season,
+        },
+      },
+    });
+  };
+
   const renderSubstitutions = (lineup) => {
     if (!lineup?.substitutes) return null;
 
@@ -308,6 +360,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
   if (!isOpen) return null;
   if (loading)
     return <div className="p-4 text-center">Loading match details...</div>;
+  if (error) return <div className="p-4 text-center">Error: {error}</div>;
   if (!details)
     return <div className="p-4 text-center">No match details available</div>;
 
@@ -339,7 +392,12 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
 
             <div className="grid grid-cols-3 items-center gap-4">
               <div className="text-right">
-                <div className="flex items-center justify-end gap-4 mb-2">
+                <div
+                  className="flex items-center justify-end gap-4 mb-2 cursor-pointer"
+                  onClick={() =>
+                    handleTeamClick(details.teams.home.id, details.teams.home)
+                  }
+                >
                   <div>
                     <div className="font-bold text-xl">
                       {details.teams.home.name}
@@ -390,7 +448,15 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
                     className="w-12 h-12 object-contain"
                   />
                   <div>
-                    <div className="font-bold text-xl">
+                    <div
+                      className="font-bold text-xl cursor-pointer"
+                      onClick={() =>
+                        handleTeamClick(
+                          details.teams.away.id,
+                          details.teams.away
+                        )
+                      }
+                    >
                       {details.teams.away.name}
                     </div>
                   </div>
