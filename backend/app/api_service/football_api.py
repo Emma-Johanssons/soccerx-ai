@@ -5,8 +5,11 @@ from datetime import datetime
 from ..config import settings
 from json.decoder import JSONDecodeError
 from sqlalchemy.exc import SQLAlchemyError
+import logging
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 class FootballAPIService:
     """
@@ -102,24 +105,14 @@ class FootballAPIService:
         except requests.RequestException:
             raise HTTPException(status_code=500, detail="Failed to fetch team data")
 
-    def get_matches(self, live=False, completed=False):
-        """Get matches for today, filtered by status."""
+    def get_matches(self, date: str):
+        """Fetch matches for a specific date"""
         try:
             url = f"{self.base_url}/fixtures"
-            today = datetime.now().strftime('%Y-%m-%d')
-            
-            #status types
-            LIVE_STATUSES = ['1H', '2H', 'HT', 'ET', 'P', 'LIVE']
-            SCHEDULED_STATUSES = ['NS', 'TBD']
-            FINISHED_STATUSES = ['FT', 'AET', 'PEN']
-            
-            params = {
-                'date': today,
-                'timezone': 'Europe/London'
-            }
+            params = {'date': date}
+            logger.info(f"Fetching matches with params: {params}")
             
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
@@ -127,62 +120,16 @@ class FootballAPIService:
                 )
             
             data = response.json()
-            all_matches = data.get('response', [])
+            logger.info(f"Got response from API: {data}")
+            return data
             
-            filtered_matches = []
-            for match in all_matches:
-                status = match.get('fixture', {}).get('status', {}).get('short')
-                league_name = match.get('league', {}).get('name')
-                
-                if league_name not in [
-                    'Premier League',
-                    'LaLiga',
-                    'La Liga',
-                    'Serie A',
-                    'Bundesliga',
-                    'Ligue 1',
-                    'FA Cup',
-                    'DFB Pokal',
-                    'Coppa Italia',
-                    'Copa del Rey',
-                    'Champions League',
-                    'Europa League'
-                ]:
-                    continue
-                    
-                home_team = match.get('teams', {}).get('home', {})
-                away_team = match.get('teams', {}).get('away', {})
-                
-                fixture_status = match.get('fixture', {}).get('status', {})
-                elapsed_time = fixture_status.get('elapsed')
-                
-                if home_team and away_team:
-                    home_team['logo'] = home_team.get('logo', '')
-                    away_team['logo'] = away_team.get('logo', '')
-                
-                match['fixture']['elapsed'] = elapsed_time
-                
-                if completed and status in FINISHED_STATUSES:
-                    filtered_matches.append(match)
-                elif not completed and (status in LIVE_STATUSES or status in SCHEDULED_STATUSES):
-                    filtered_matches.append(match)
-        
-            return {
-                "response": filtered_matches
-            }
-                
         except requests.ConnectionError:
             raise HTTPException(status_code=503, detail="API service unavailable")
         except requests.Timeout:
             raise HTTPException(status_code=504, detail="Request timeout")
-        except JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Invalid JSON response from API")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid parameter value")
-        except SQLAlchemyError:
-            raise HTTPException(status_code=500, detail="Database error")
-        except requests.RequestException:
-            raise HTTPException(status_code=500, detail="Failed to fetch matches")
+        except Exception as e:
+            logger.error(f"Error in get_matches: {str(e)}")
+            raise
 
     def test_api(self):
         """Test method to verify API connectivity."""

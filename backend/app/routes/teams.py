@@ -2,10 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..api_service.football_api import FootballAPIService
+from ..services.celery import celery  # Import celery instance from services
+from ..tasks import fetch_team_statistics  # Import the task
+from ..sql_models.models import Team  # Updated import path
+from ..services.data_sync import DataSyncService  # Import DataSyncService
 import logging
 from datetime import datetime
 import re
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,18 +22,26 @@ except ValueError as e:
 
 @router.get("/")
 async def get_teams(db: Session = Depends(get_db)):
-    if not football_api:
-        raise HTTPException(
-            status_code=500,
-            detail="Football API service not properly initialized"
-        )
-    
+    """Get all teams from the database, fetch from API if not found"""
     try:
-        logger.info("Fetching all teams")
-        response = football_api.get_team(team_id=None)
+        # First try to get from database
+        teams = db.query(Team).all()
+        
+        if not teams:
+            logger.info("No teams in database, fetching from API")
+            if not football_api:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Football API service not properly initialized"
+                )
+            
+            # Trigger async task to fetch and store teams
+            task = fetch_team_statistics.delay()
+            teams = task.get(timeout=10)  # Wait up to 10 seconds
+            
         return {
             "status": "success",
-            "data": response.get('response', []),
+            "data": teams,
             "message": "Teams retrieved successfully"
         }
     except Exception as e:
@@ -41,37 +52,36 @@ async def get_teams(db: Session = Depends(get_db)):
         )
 
 @router.get("/{team_id}")
-async def get_team(team_id: int, db: Session = Depends(get_db)):
-    if not football_api:
-        raise HTTPException(
-            status_code=500,
-            detail="Football API service not properly initialized"
-        )
-    
+def get_team(team_id: int, db: Session = Depends(get_db)):
     try:
-        logger.info(f"Fetching team with ID: {team_id}")
-        response =  football_api.get_team(team_id=team_id)
+        # First try to get from database
+        team = db.query(Team).filter(Team.id == team_id).first()
         
-        if not response.get('response'):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Team with ID {team_id} not found"
-            )
+        if not team:
+            # If not in DB, fetch from API and store
+            if not football_api:
+                raise HTTPException(status_code=500, detail="Football API service not initialized")
             
+            team_data = football_api.get_team(team_id)
+            if team_data:
+                team = Team(**team_data)
+                db.add(team)
+                db.commit()
+        
+        # Get or fetch statistics
+        sync_service = DataSyncService(db, football_api)
+        stats = sync_service.fetch_and_store_team_statistics(team_id)
+        
         return {
             "status": "success",
-            "data": response.get('response', []),
-            "message": f"Team {team_id} retrieved successfully"
+            "data": {
+                "team": team,
+                "statistics": stats
+            }
         }
-        
-    except HTTPException as he:
-        raise he
     except Exception as e:
-        logger.error(f"Error fetching team {team_id}: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching team data: {str(e)}"
-        )
+        logger.error(f"Error getting team: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{team_id}/matches")
 async def get_team_matches(team_id: int):

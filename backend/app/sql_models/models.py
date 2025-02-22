@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Time
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Time, Float, Boolean
 from sqlalchemy.orm import relationship
 from ..database import Base
 from datetime import datetime
@@ -148,14 +148,17 @@ class Country(Base):
     country_name = Column(String)
     teams = relationship("Team", back_populates="country")
     players = relationship("Player", back_populates="country")
+    leagues = relationship("League", back_populates="country")
 
 class League(Base):
     __tablename__ = "leagues"
     
     id = Column(Integer, primary_key=True)
     name = Column(String)
-    country = Column(String, nullable=True)
+    country_id = Column(Integer, ForeignKey("countries.id"))
     logo = Column(String, nullable=True)
+    
+    country = relationship("Country", back_populates="leagues")
 
 class Position(Base):
     __tablename__ = "positions"
@@ -170,3 +173,40 @@ class LastSync(Base):
     id = Column(Integer, primary_key=True)
     sync_type = Column(String)  # 'leagues', 'teams', 'players'
     last_sync_time = Column(DateTime, default=datetime.now)
+
+class TeamStatistics(Base):
+    __tablename__ = "team_statistics"
+    
+    id = Column(Integer, primary_key=True)
+    team_id = Column(Integer, ForeignKey("teams.id"))
+    season = Column(Integer)
+    league_id = Column(Integer, ForeignKey("leagues.id"))
+    matches_played = Column(Integer)
+    wins = Column(Integer)
+    draws = Column(Integer)
+    losses = Column(Integer)
+    goals_for = Column(Integer)
+    goals_against = Column(Integer)
+    clean_sheets = Column(Integer)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+    team = relationship("Team", backref="statistics")
+    league = relationship("League")
+
+class PlayerStatistics(Base):
+    __tablename__ = "player_statistics"
+    
+    id = Column(Integer, primary_key=True)
+    player_id = Column(Integer, ForeignKey("players.id"))
+    season = Column(Integer)
+    league_id = Column(Integer, ForeignKey("leagues.id"))
+    appearances = Column(Integer)
+    minutes_played = Column(Integer)
+    goals = Column(Integer)
+    assists = Column(Integer)
+    yellow_cards = Column(Integer)
+    red_cards = Column(Integer)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+    player = relationship("Player", backref="statistics")
+    league = relationship("League")

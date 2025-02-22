@@ -1,25 +1,25 @@
-# Använd en Python-bild som bas
-FROM python:3.9-slim
+FROM python:3.12-slim
 
-# Sätt arbetskatalogen i containern
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Kopiera alla projektfiler till containern
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the rest of the application
 COPY . .
 
-# Make the entrypoint script executable
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Add the app directory to PYTHONPATH
+ENV PYTHONPATH=/app
 
-# Exponera porten för FastAPI
-EXPOSE 8000
+# Make sure scripts are executable
+RUN chmod +x /app/entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Create an entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh

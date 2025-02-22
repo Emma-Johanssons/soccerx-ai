@@ -1,59 +1,79 @@
 services:
   web:
     build: .
+    command: ["./entrypoint.sh", "web"]
+    volumes:
+      - .:/app
     ports:
       - "8000:8000"
     depends_on:
-      - redis
-      - db
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
     environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=${DATABASE_URL}
       - FOOTBALL_API_KEY=${FOOTBALL_API_KEY}
-    volumes:
-      - .:/app
 
   celery_worker:
     build: .
-    command: celery -A app.services.celery worker --loglevel=info
-    depends_on:
-      - redis
-      - db
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=${DATABASE_URL}
-      - FOOTBALL_API_KEY=${FOOTBALL_API_KEY}
+    command: ["./entrypoint.sh", "celery-worker"]
     volumes:
       - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
 
   celery_beat:
     build: .
-    command: celery -A app.services.celery beat --loglevel=info
-    depends_on:
-      - redis
-      - db
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=${DATABASE_URL}
-      - FOOTBALL_API_KEY=${FOOTBALL_API_KEY}
+    command: ["./entrypoint.sh", "celery-beat"]
     volumes:
       - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/0
 
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
 
   db:
     image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     ports:
       - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
 
 volumes:
   postgres_data:

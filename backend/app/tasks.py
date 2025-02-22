@@ -3,8 +3,9 @@ from app.database import SessionLocal
 from app.api_service.football_api import FootballAPIService
 from datetime import datetime, timedelta
 import logging
-from app.sql_models.models import Match, Team, MatchEvent
+from app.sql_models.models import Match, Team, MatchEvent, Player
 from app.services.data_sync import DataSyncService
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,64 @@ MAJOR_LEAGUES = {
 }
 
 @shared_task
+def sync_static_data():
+    """Sync leagues, teams, and players data"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        sync_service.sync_countries()
+        sync_service.sync_leagues()
+        sync_service.sync_teams()
+        logger.info("Static data sync completed")
+    finally:
+        db.close()
+
+@shared_task
+def sync_matches():
+    """Sync live and upcoming matches"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        matches = football_api.get_matches()
+        # Add logic to store matches in database
+        logger.info("Matches sync completed")
+    finally:
+        db.close()
+
+@shared_task
+def sync_statistics():
+    """Daily task to sync statistics for all teams and players"""
+    db = SessionLocal()
+    try:
+        sync_service = DataSyncService(db, FootballAPIService())
+        
+        # Sync team statistics
+        teams = db.query(Team).all()
+        for team in teams:
+            sync_service.fetch_and_store_team_statistics(team.id)
+            
+        # Sync player statistics
+        players = db.query(Player).all()
+        for player in players:
+            sync_service.fetch_and_store_player_statistics(player.id)
+            
+    finally:
+        db.close()
+
+@shared_task
+def fetch_team_statistics(team_id: int):
+    """Fetch statistics for a specific team"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        stats = football_api.get_team_statistics(team_id)
+        # Store in database
+        return stats
+    finally:
+        db.close()
+
+@shared_task
 def sync_all_data():
     """Sync all data using DataSyncService"""
     db = SessionLocal()
@@ -31,31 +90,6 @@ def sync_all_data():
         logger.info("Successfully synced all data")
     except Exception as e:
         logger.error(f"Error in sync_all_data: {str(e)}")
-        raise
-    finally:
-        db.close()
-
-@shared_task
-def sync_matches():
-    """Sync today's matches data"""
-    db = SessionLocal()
-    try:
-        api = FootballAPIService()
-        today = datetime.now().date()
-        
-        # Get today's matches
-        matches = api.get_matches(date=today)
-        
-        if matches and 'response' in matches:
-            for match_data in matches['response']:
-                # Update or create match in database
-                update_match_in_db(db, match_data)
-        
-        db.commit()
-        logger.info(f"Successfully synced matches for {today}")
-    except Exception as e:
-        logger.error(f"Error syncing matches: {str(e)}")
-        db.rollback()
         raise
     finally:
         db.close()

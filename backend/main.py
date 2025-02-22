@@ -7,40 +7,35 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routes import teams, players, matches, leagues, search, standings
-from app.database import recreate_tables, SessionLocal
-from app.services.background_tasks import scheduler, schedule_data_sync
+from app.database import recreate_tables, SessionLocal, Base, engine
 from app.services.data_sync import DataSyncService
 from app.api_service.football_api import FootballAPIService
 
-def initial_data_load():
-    """Load initial data into the database"""
-    logger.info("Starting initial data load...")
-    db = SessionLocal()
-    try:
-        football_api = FootballAPIService()
-        sync_service = DataSyncService(db, football_api)
-        sync_service.sync_all()  # This will populate all tables
-        logger.info("Initial data load completed successfully")
-    except Exception as e:
-        logger.error(f"Error loading initial data: {e}")
-        raise
-    finally:
-        db.close()
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Recreate tables
-    recreate_tables()
+    # Startup
+    logger.info("Starting application...")
+    try:
+        # Create all tables first
+        logger.info("Creating database tables...")
+        Base.metadata.create_all(bind=engine)
+        
+        # Then proceed with data sync
+        db = SessionLocal()
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        await sync_service.sync_all()
+        logger.info("Initial data sync completed")
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
+    finally:
+        if 'db' in locals():
+            db.close()
     
-    # Load initial data
-    initial_data_load()
+    yield  # Server is running
     
-    # Schedule future updates
-    schedule_data_sync()
-    
-    yield
     # Shutdown
-    scheduler.shutdown()
+    logger.info("Shutting down application...")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -53,10 +48,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
+# Include routers with explicit prefixes
+app.include_router(matches.router, prefix="/api/matches", tags=["matches"])
 app.include_router(teams.router, prefix="/api/teams", tags=["teams"])
 app.include_router(players.router, prefix="/api/players", tags=["players"])
-app.include_router(matches.router, prefix="/api/matches", tags=["matches"])
 app.include_router(leagues.router, prefix="/api/leagues", tags=["leagues"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(standings.router, prefix="/api/standings", tags=["standings"])
+
+# After registering all routes
+for route in app.routes:
+    logger.info(f"Registered route: {route.path}")

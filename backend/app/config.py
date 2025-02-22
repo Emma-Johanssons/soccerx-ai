@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     RAPIDAPI_HOST: str = "api-football-v1.p.rapidapi.com"
     
     # Redis Settings
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://redis:6379/0"
 
     @property
     def DATABASE_URL(self) -> str:
