@@ -25,7 +25,7 @@ class FootballAPIService:
         major_leagues (dict): Configuration for supported major leagues
     """
     def __init__(self):
-        self.base_url = "https://v3.football.api-sports.io"
+        self.base_url = settings.API_BASE_URL
         self.headers = {
             "x-apisports-key": settings.FOOTBALL_API_KEY,
         }
@@ -204,7 +204,8 @@ class FootballAPIService:
         try:
             url = f"{self.base_url}/players"
             params = {
-                "search": search
+                "search": search,
+                "include": "birth,nationality"
             }
             
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
@@ -345,8 +346,8 @@ class FootballAPIService:
         except requests.RequestException:
             raise HTTPException(status_code=500, detail="Failed to fetch leagues")
 
-    def get_team_players(self, team_id: int, season: int):
-        """Get squad list for a team."""
+    def get_team_players(self, team_id: int):
+        """Get players for a specific team."""
         try:
             url = f"{self.base_url}/players/squads"
             params = {
@@ -354,21 +355,22 @@ class FootballAPIService:
             }
             
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            if response.status_code == 200:
-                return response.json()
-            return None
-        except requests.ConnectionError:
-            raise HTTPException(status_code=503, detail="API service unavailable")
-        except requests.Timeout:
-            raise HTTPException(status_code=504, detail="Request timeout")
-        except JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Invalid JSON response from API")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid parameter value")
-        except SQLAlchemyError:
-            raise HTTPException(status_code=500, detail="Database error")
-        except requests.RequestException:
-            raise HTTPException(status_code=500, detail="Failed to fetch leagues")
+            if response.status_code != 200:
+                return None
+
+            data = response.json()
+            
+            # Log the response to see the data structure
+            logger.info(f"API Response for team {team_id}: {data}")
+            
+            if data.get("errors"):
+                return None
+
+            return data
+                
+        except requests.RequestException as e:
+            logger.error(f"API request failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to fetch team players")
 
     def get_team_matches(self, team_id: int, next: int = None, last: int = None):
         """Get matches for a specific team."""

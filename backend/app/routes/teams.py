@@ -2,13 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..api_service.football_api import FootballAPIService
-from ..services.celery import celery  # Import celery instance from services
-from ..tasks import fetch_team_statistics  # Import the task
-from ..sql_models.models import Team  # Updated import path
-from ..services.data_sync import DataSyncService  # Import DataSyncService
+from ..services.celery import celery
+from ..tasks import fetch_team_statistics
+from ..sql_models.models import Team, TeamStatistics
+from ..services.data_sync import DataSyncService
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
+from fastapi_cache.decorator import cache
+from ..services.data_service import DataService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,6 +21,49 @@ try:
 except ValueError as e:
     logger.error(f"Error initializing FootballAPIService: {e}")
     football_api = None
+
+def fetch_and_store_team(team_id: int, db: Session):
+    """Fetch team data from API and store in database"""
+    try:
+        team_data = football_api.get_team(team_id)
+        if not team_data or 'response' not in team_data:
+            raise HTTPException(status_code=404, detail="Team not found")
+            
+        team_info = team_data['response'][0]['team']
+        team = Team(
+            id=team_info['id'],
+            name=team_info['name'],
+            logo_url=team_info.get('logo'),
+            founded=team_info.get('founded'),
+            venue_name=team_info.get('venue', {}).get('name'),
+            venue_capacity=team_info.get('venue', {}).get('capacity'),
+            last_updated=datetime.utcnow()
+        )
+        
+        db.add(team)
+        db.commit()
+        db.refresh(team)
+        return team
+    except Exception as e:
+        logger.error(f"Error fetching and storing team: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_cached_statistics(team_id: int, db: Session):
+    """Get cached team statistics from database"""
+    try:
+        stats = (
+            db.query(TeamStatistics)
+            .filter(
+                TeamStatistics.team_id == team_id,
+                TeamStatistics.last_updated > datetime.utcnow() - timedelta(hours=24)
+            )
+            .first()
+        )
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting cached statistics: {str(e)}")
+        return None
 
 @router.get("/")
 async def get_teams(db: Session = Depends(get_db)):
@@ -52,61 +97,44 @@ async def get_teams(db: Session = Depends(get_db)):
         )
 
 @router.get("/{team_id}")
-def get_team(team_id: int, db: Session = Depends(get_db)):
+@cache(expire=3600)  # Cache for 1 hour
+async def get_team(team_id: int, db: Session = Depends(get_db)):
+    data_service = DataService(db)
     try:
-        # First try to get from database
-        team = db.query(Team).filter(Team.id == team_id).first()
-        
-        if not team:
-            # If not in DB, fetch from API and store
-            if not football_api:
-                raise HTTPException(status_code=500, detail="Football API service not initialized")
-            
-            team_data = football_api.get_team(team_id)
-            if team_data:
-                team = Team(**team_data)
-                db.add(team)
-                db.commit()
-        
-        # Get or fetch statistics
-        sync_service = DataSyncService(db, football_api)
-        stats = sync_service.fetch_and_store_team_statistics(team_id)
-        
-        return {
-            "status": "success",
-            "data": {
-                "team": team,
-                "statistics": stats
-            }
-        }
+        team = await data_service.get_team(team_id)
+        return {"status": "success", "data": team}
     except Exception as e:
-        logger.error(f"Error getting team: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{team_id}/matches")
-async def get_team_matches(team_id: int):
-    """Get upcoming and completed matches for a team"""
+def get_team_matches(
+    team_id: int,
+    db: Session = Depends(get_db),
+    upcoming: bool = Query(True)
+):
+    """Get team's matches (upcoming or past)"""
     try:
-        logger.info(f"Fetching matches for team {team_id}")
+        response = football_api.get_team_matches(
+            team_id,
+            next=10 if upcoming else None,
+            last=10 if not upcoming else None
+        )
         
-        # Fetch upcoming matches (next 10)
-        upcoming_response =  football_api.get_team_matches(team_id, next=10)
-        
-        # Fetch completed matches (last 10)
-        completed_response =  football_api.get_team_matches(team_id, last=10)
-        
+        if not response or 'response' not in response:
+            return {
+                "status": "success",
+                "data": [],
+                "message": "No matches found"
+            }
+            
         return {
             "status": "success",
-            "upcoming": upcoming_response.get('response', []) if upcoming_response else [],
-            "completed": completed_response.get('response', []) if completed_response else [],
-            "message": "Team matches retrieved successfully"
+            "data": response['response'],
+            "message": f"Retrieved {len(response['response'])} matches"
         }
     except Exception as e:
         logger.error(f"Error fetching team matches: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching team matches: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{team_id}/players")
 async def get_team_players(team_id: int):
@@ -390,3 +418,31 @@ async def get_team_statistics(team_id: int):
             status_code=500,
             detail=str(e)
         )
+
+@router.get("/live/matches")
+@cache(expire=300)  # Cache for 5 minutes
+def get_live_matches(db: Session = Depends(get_db)):
+    """Get all live matches"""
+    try:
+        response = football_api.get_matches(date=datetime.now().strftime("%Y-%m-%d"))
+        if not response or 'response' not in response:
+            return {
+                "status": "success",
+                "data": [],
+                "message": "No live matches found"
+            }
+            
+        # Filter for live matches only
+        live_matches = [
+            match for match in response['response']
+            if match['fixture']['status']['short'] in ['1H', '2H', 'HT']
+        ]
+        
+        return {
+            "status": "success",
+            "data": live_matches,
+            "message": f"Found {len(live_matches)} live matches"
+        }
+    except Exception as e:
+        logger.error(f"Error fetching live matches: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

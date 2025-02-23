@@ -1,79 +1,72 @@
 services:
-  web:
-    build: .
-    command: ["./entrypoint.sh", "web"]
-    volumes:
-      - .:/app
+  db:
+    image: postgres:15
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
     ports:
-      - "8000:8000"
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - REDIS_URL=redis://redis:6379/0
-      - FOOTBALL_API_KEY=${FOOTBALL_API_KEY}
-
-  celery_worker:
-    build: .
-    command: ["./entrypoint.sh", "celery-worker"]
+      - "5432:5432"
     volumes:
-      - .:/app
-    depends_on:
-      redis:
-        condition: service_healthy
-      db:
-        condition: service_healthy
-    environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_NAME=${DB_NAME}
-      - REDIS_URL=redis://redis:6379/0
-
-  celery_beat:
-    build: .
-    command: ["./entrypoint.sh", "celery-beat"]
-    volumes:
-      - .:/app
-    depends_on:
-      redis:
-        condition: service_healthy
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
-    image: redis:alpine
+    image: redis:7
     ports:
       - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 30s
-      retries: 50
+      timeout: 5s
+      retries: 5
 
-  db:
-    image: postgres:15
+  web:
+    build: .
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      - .:/app
+    command: ./entrypoint.sh web
     ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-      interval: 5s
-      timeout: 30s
-      retries: 50
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  celery_worker:
+    build: .
+    command: ./entrypoint.sh celery-worker
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+
+  celery_beat:
+    build: .
+    command: ./entrypoint.sh celery-beat
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
 
 volumes:
   postgres_data:

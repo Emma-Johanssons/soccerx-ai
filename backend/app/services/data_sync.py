@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from ..api_service.football_api import FootballAPIService
-from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics
+from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics, Position
+from ..utils.position_mapper import get_position_id
 import logging
 from ..database import Base, engine
 
@@ -14,23 +15,57 @@ class DataSyncService:
         self.major_leagues = self.football_api.major_leagues
 
     def should_sync(self, sync_type: str) -> bool:
+        """Check if we should sync based on last sync time"""
         last_sync = self.db.query(LastSync).filter(LastSync.sync_type == sync_type).first()
         if not last_sync:
+            # If no last sync record exists, check if we have any data
+            if sync_type == 'countries':
+                has_data = self.db.query(Country).first() is not None
+            elif sync_type == 'leagues':
+                has_data = self.db.query(League).first() is not None
+            elif sync_type == 'teams':
+                has_data = self.db.query(Team).first() is not None
+            elif sync_type == 'positions':
+                has_data = self.db.query(Position).first() is not None
+            elif sync_type == 'players':
+                has_data = self.db.query(Player).first() is not None
+            else:
+                has_data = False
+                
+            # If we have data but no sync record, create one
+            if has_data:
+                self.update_sync_time(sync_type)
+                return False
             return True
+            
         return datetime.now() - last_sync.last_sync_time > timedelta(days=1)
 
     def update_sync_time(self, sync_type: str):
-        last_sync = self.db.query(LastSync).filter(LastSync.sync_type == sync_type).first()
-        if last_sync:
-            last_sync.last_sync_time = datetime.now()
-        else:
-            self.db.add(LastSync(sync_type=sync_type))
-        self.db.commit()
+        """Update the last sync time for a given sync type"""
+        try:
+            last_sync = self.db.query(LastSync).filter(LastSync.sync_type == sync_type).first()
+            current_time = datetime.now()
+            
+            if last_sync:
+                last_sync.last_sync_time = current_time
+                logger.info(f"Updated last sync time for {sync_type} to {current_time}")
+            else:
+                new_sync = LastSync(sync_type=sync_type, last_sync_time=current_time)
+                self.db.add(new_sync)
+                logger.info(f"Created new sync record for {sync_type} with time {current_time}")
+            
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Error updating sync time for {sync_type}: {str(e)}")
+            self.db.rollback()
 
     def sync_countries(self):
+        """Update country data if needed"""
         if not self.should_sync('countries'):
+            logger.info("Countries sync skipped - recent sync exists")
             return
         
+        logger.info("Starting countries sync")
         response = self.football_api.get_countries()
         if response and 'response' in response:
             for country_data in response['response']:
@@ -186,17 +221,165 @@ class DataSyncService:
         # Implementation similar to team statistics
         pass
 
-    async def sync_all(self):
-        """Sync all data"""
+    def sync_positions(self):
+        """Initialize or update position data"""
+        logger.info("Starting positions sync")
+        
+        positions_data = [
+            {"id": 1, "positions": "Goalkeeper"},
+            {"id": 2, "positions": "Defender"},
+            {"id": 3, "positions": "Midfielder"},
+            {"id": 4, "positions": "Attacker"}
+        ]
+        
         try:
-            # Create tables if they don't exist
-            Base.metadata.create_all(bind=engine)
+            # First, check if positions table exists and has data
+            existing_count = self.db.query(Position).count()
+            logger.info(f"Current positions in database: {existing_count}")
             
-            # Then proceed with sync
+            for pos_data in positions_data:
+                # Check if position exists
+                existing = self.db.query(Position).filter(Position.id == pos_data['id']).first()
+                if not existing:
+                    position = Position(**pos_data)
+                    self.db.add(position)
+                    logger.info(f"Adding position: {position.positions}")
+            
+            self.db.commit()
+            
+            # Verify positions were created
+            final_count = self.db.query(Position).count()
+            logger.info(f"Positions after sync: {final_count}")
+            
+            # List all positions
+            all_positions = self.db.query(Position).all()
+            for pos in all_positions:
+                logger.info(f"Position in DB: ID={pos.id}, Name={pos.positions}")
+            
+            self.update_sync_time('positions')
+            logger.info("Positions synced successfully")
+        except Exception as e:
+            logger.error(f"Error syncing positions: {str(e)}")
+            self.db.rollback()
+            raise
+
+    def sync_players(self):
+        """Update player data if needed"""
+        if not self.should_sync('players'):
+            logger.info("Players sync skipped - recent sync exists")
+            return
+
+        logger.info("Starting players sync")
+        try:
+            current_season = 2024
+            
+            teams = self.db.query(Team).all()
+            for team in teams:
+                try:
+                    response = self.football_api.get_team_squad(team.id, season=current_season)
+                    if response and 'response' in response and response['response']:
+                        # The squad data is nested in response[0]['players']
+                        squad_data = response['response'][0].get('players', [])
+                        
+                        for player_data in squad_data:
+                            try:
+                                if not player_data:
+                                    logger.warning(f"Empty player data for team {team.name}")
+                                    continue
+                                    
+                                player = Player(
+                                    id=player_data.get('id'),  # Use get() to avoid KeyError
+                                    name=player_data.get('name'),
+                                    team_id=team.id,
+                                    position_id=get_position_id(player_data.get('position', 'Unknown'))
+                                )
+                                
+                                if not player.id:
+                                    logger.warning(f"No player ID found in data for team {team.name}")
+                                    continue
+                                    
+                                existing = self.db.query(Player).filter(Player.id == player.id).first()
+                                if existing:
+                                    for key, value in player.__dict__.items():
+                                        if not key.startswith('_') and value is not None:
+                                            setattr(existing, key, value)
+                                else:
+                                    self.db.add(player)
+                                    logger.info(f"Added player: {player.name} for team {team.name}")
+                                    
+                            except Exception as e:
+                                logger.error(f"Error processing individual player for team {team.name}: {str(e)}")
+                                continue
+                                
+                        try:
+                            self.db.commit()
+                            logger.info(f"Successfully synced players for team {team.name}")
+                        except Exception as e:
+                            logger.error(f"Error committing players for team {team.name}: {str(e)}")
+                            self.db.rollback()
+                    else:
+                        logger.warning(f"No valid response data for team {team.name}")
+                            
+                except Exception as e:
+                    logger.error(f"Error fetching players for team {team.name}: {str(e)}")
+                    continue
+            
+            self.update_sync_time('players')
+            logger.info("Players sync completed")
+        except Exception as e:
+            logger.error(f"Error in player sync process: {str(e)}")
+            self.db.rollback()
+
+    async def sync_all(self):
+        """Sync all data in correct order"""
+        try:
+            logger.info("Starting full data sync...")
+            
+            # 1. First sync positions (most basic static data)
+            logger.info("Syncing positions...")
+            self.sync_positions()
+            
+            # Verify positions were created
+            positions = self.db.query(Position).all()
+            if not positions:
+                logger.error("Positions were not created! Creating them now...")
+                positions_data = [
+                    {"id": 1, "positions": "Goalkeeper"},
+                    {"id": 2, "positions": "Defender"},
+                    {"id": 3, "positions": "Midfielder"},
+                    {"id": 4, "positions": "Attacker"}
+                ]
+                for pos_data in positions_data:
+                    position = Position(**pos_data)
+                    self.db.add(position)
+                self.db.commit()
+                logger.info("Positions created successfully")
+            
+            # 2. Then sync other static data
+            logger.info("Syncing countries...")
             self.sync_countries()
+            
+            logger.info("Syncing leagues...")
             self.sync_leagues()
+            
+            logger.info("Syncing teams...")
             self.sync_teams()
+            
+            # 3. Finally sync players (depends on positions and teams)
+            logger.info("Syncing players...")
+            self.sync_players()
+            
             logger.info("All data synced successfully")
         except Exception as e:
             logger.error(f"Error during sync_all: {e}")
+            self.db.rollback()
             raise
+
+class DataFetchStrategy:
+    def __init__(self):
+        self.REFRESH_INTERVALS = {
+            'static': timedelta(days=7),    # Team info, logos, etc.
+            'daily': timedelta(days=1),     # Standings, completed matches
+            'frequent': timedelta(hours=4),  # Team statistics
+            'live': timedelta(minutes=5)     # Live matches, scores
+        }

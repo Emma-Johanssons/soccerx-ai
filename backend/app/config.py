@@ -1,7 +1,10 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    API_BASE_URL: str = "https://v3.football.api-sports.io"
+    # API Settings
+    API_BASE_URL: str
+    FOOTBALL_API_KEY: str
+    RAPIDAPI_HOST: str
 
     # Database Settings
     db_name: str
@@ -10,12 +13,8 @@ class Settings(BaseSettings):
     db_host: str
     db_port: str
     
-    # API Settings
-    FOOTBALL_API_KEY: str
-    RAPIDAPI_HOST: str = "api-football-v1.p.rapidapi.com"
-    
     # Redis Settings
-    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_URL: str
 
     @property
     def DATABASE_URL(self) -> str:

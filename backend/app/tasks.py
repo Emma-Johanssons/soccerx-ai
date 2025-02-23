@@ -23,27 +23,181 @@ MAJOR_LEAGUES = {
 
 @shared_task
 def sync_static_data():
-    """Sync leagues, teams, and players data"""
+    """Weekly sync of static data"""
     db = SessionLocal()
     try:
         football_api = FootballAPIService()
         sync_service = DataSyncService(db, football_api)
-        sync_service.sync_countries()
-        sync_service.sync_leagues()
         sync_service.sync_teams()
+        sync_service.sync_leagues()
         logger.info("Static data sync completed")
     finally:
         db.close()
 
 @shared_task
-def sync_matches():
-    """Sync live and upcoming matches"""
+def sync_daily_data():
+    """12-hour sync of standings and statistics"""
     db = SessionLocal()
     try:
         football_api = FootballAPIService()
-        matches = football_api.get_matches()
-        # Add logic to store matches in database
-        logger.info("Matches sync completed")
+        sync_service = DataSyncService(db, football_api)
+        sync_service.sync_standings()
+        logger.info("Daily data sync completed")
+    finally:
+        db.close()
+
+@shared_task
+def sync_todays_matches():
+    """Fetch and store today's matches (upcoming and live)"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        today = datetime.now().date()
+        
+        # Fetch today's matches
+        matches = football_api.get_matches(date=today)
+        
+        for match_data in matches.get('response', []):
+            fixture = match_data['fixture']
+            match = Match(
+                id=fixture['id'],
+                home_team_id=fixture['teams']['home']['id'],
+                away_team_id=fixture['teams']['away']['id'],
+                start_time=fixture['date'],
+                status=fixture['status']['short'],
+                home_score=fixture['goals']['home'],
+                away_score=fixture['goals']['away'],
+                league_id=fixture['league']['id'],
+                last_updated=datetime.utcnow()
+            )
+            
+            # Update or create match
+            existing_match = db.query(Match).filter(Match.id == match.id).first()
+            if existing_match:
+                for key, value in match.__dict__.items():
+                    if not key.startswith('_'):
+                        setattr(existing_match, key, value)
+            else:
+                db.add(match)
+                
+        db.commit()
+        logger.info("Today's matches synced successfully")
+    except Exception as e:
+        logger.error(f"Error syncing today's matches: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+@shared_task
+def sync_completed_matches():
+    """Sync completed matches with full details"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        yesterday = datetime.now() - timedelta(days=1)
+        
+        # Get completed matches
+        completed_matches = db.query(Match).filter(
+            Match.start_time >= yesterday,
+            Match.status.in_(['FT', 'AET', 'PEN'])
+        ).all()
+        
+        for match in completed_matches:
+            # Update match statistics
+            stats = football_api.get_match_statistics(match.id)
+            if stats:
+                # Update match statistics logic here
+                pass
+            
+            # Get and store match events
+            events = football_api.get_match_events(match.id)
+            if events:
+                for event_data in events.get('response', []):
+                    event = MatchEvent(
+                        match_id=match.id,
+                        event_time=event_data['time']['elapsed'],
+                        event_type=event_data['type'],
+                        player_id=event_data['player']['id'],
+                        team_id=event_data['team']['id'],
+                        details=event_data['detail']
+                    )
+                    db.add(event)
+            
+            # Get and store lineups
+            lineups = football_api.get_match_lineups(match.id)
+            if lineups:
+                # Store lineup data logic here
+                pass
+                
+            match.last_updated = datetime.utcnow()
+            
+        db.commit()
+        logger.info("Completed matches synced successfully")
+    except Exception as e:
+        logger.error(f"Error syncing completed matches: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+@shared_task
+def sync_live_matches():
+    """Update live match data every minute"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        
+        # Get live matches
+        live_matches = football_api.get_matches(live=True)
+        
+        for match_data in live_matches.get('response', []):
+            fixture = match_data['fixture']
+            
+            # Update match
+            match = db.query(Match).filter(Match.id == fixture['id']).first()
+            if match:
+                match.status = fixture['status']['short']
+                match.home_score = fixture['goals']['home']
+                match.away_score = fixture['goals']['away']
+                match.last_updated = datetime.utcnow()
+                
+                # Get and store latest events
+                events = football_api.get_match_events(match.id)
+                if events:
+                    for event_data in events.get('response', []):
+                        existing_event = db.query(MatchEvent).filter(
+                            MatchEvent.match_id == match.id,
+                            MatchEvent.event_time == event_data['time']['elapsed'],
+                            MatchEvent.player_id == event_data['player']['id']
+                        ).first()
+                        
+                        if not existing_event:
+                            event = MatchEvent(
+                                match_id=match.id,
+                                event_time=event_data['time']['elapsed'],
+                                event_type=event_data['type'],
+                                player_id=event_data['player']['id'],
+                                team_id=event_data['team']['id'],
+                                details=event_data['detail']
+                            )
+                            db.add(event)
+                
+        db.commit()
+        logger.info("Live matches updated successfully")
+    except Exception as e:
+        logger.error(f"Error updating live matches: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+@shared_task
+def sync_team_statistics(team_id: int):
+    """Background task for team statistics"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        sync_service.fetch_and_store_team_statistics(team_id)
+        logger.info(f"Team statistics synced for team {team_id}")
     finally:
         db.close()
 
@@ -95,27 +249,68 @@ def sync_all_data():
         db.close()
 
 @shared_task
-def sync_completed_matches():
-    """Sync completed matches from yesterday"""
+def sync_daily_matches():
+    """Sync completed matches from yesterday and upcoming matches"""
     db = SessionLocal()
     try:
-        api = FootballAPIService()
-        yesterday = datetime.now().date() - timedelta(days=1)
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
         
-        # Get yesterday's completed matches
-        matches = api.get_matches(date=yesterday, status="FT")
+        # Yesterday's completed matches
+        yesterday = datetime.now() - timedelta(days=1)
+        completed_matches = football_api.get_matches(date=yesterday)
+        for match in completed_matches.get('response', []):
+            sync_service.store_match(match)
+            
+        # Upcoming matches for next 7 days
+        for days in range(7):
+            date = datetime.now() + timedelta(days=days)
+            upcoming_matches = football_api.get_matches(date=date)
+            for match in upcoming_matches.get('response', []):
+                sync_service.store_match(match)
+                
+        logger.info("Daily matches sync completed")
+    finally:
+        db.close()
+
+@shared_task
+def sync_player_statistics():
+    """Sync player statistics daily"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
         
-        if matches and 'response' in matches:
-            for match_data in matches['response']:
-                # Update match details including events and statistics
-                update_match_details_in_db(db, match_data)
+        # Get all players from database
+        players = db.query(Player).all()
+        for player in players:
+            # Get and store player statistics
+            stats = football_api.get_player_statistics(player.id)
+            sync_service.store_player_statistics(player.id, stats)
+            
+        logger.info("Player statistics sync completed")
+    finally:
+        db.close()
+
+@shared_task
+def sync_match_statistics():
+    """Sync match statistics for completed matches"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
         
-        db.commit()
-        logger.info(f"Successfully synced completed matches for {yesterday}")
-    except Exception as e:
-        logger.error(f"Error syncing completed matches: {str(e)}")
-        db.rollback()
-        raise
+        # Get yesterday's matches
+        yesterday = datetime.now() - timedelta(days=1)
+        matches = football_api.get_matches(date=yesterday)
+        
+        for match in matches.get('response', []):
+            match_id = match['fixture']['id']
+            # Get and store match statistics
+            stats = football_api.get_match_statistics(match_id)
+            sync_service.store_match_statistics(match_id, stats)
+            
+        logger.info("Match statistics sync completed")
     finally:
         db.close()
 
@@ -139,41 +334,6 @@ def sync_team_data():
         logger.error(f"Error syncing team data: {str(e)}")
         db.rollback()
         raise
-    finally:
-        db.close()
-
-@shared_task
-def sync_team_statistics(team_id: int):
-    """Sync statistics for a specific team"""
-    db = SessionLocal()
-    try:
-        football_api = FootballAPIService()
-        sync_service = DataSyncService(db, football_api)
-        sync_service.sync_team_statistics(team_id)
-    finally:
-        db.close()
-
-@shared_task
-def sync_player_statistics(player_id: int):
-    """Sync statistics for a specific player"""
-    db = SessionLocal()
-    try:
-        football_api = FootballAPIService()
-        sync_service = DataSyncService(db, football_api)
-        sync_service.sync_player_statistics(player_id)
-    finally:
-        db.close()
-
-@shared_task
-def sync_daily_data():
-    """Daily sync of completed matches and updates to team/player data"""
-    db = SessionLocal()
-    try:
-        football_api = FootballAPIService()
-        sync_service = DataSyncService(db, football_api)
-        sync_service.sync_completed_matches()
-        sync_service.sync_teams()
-        sync_service.sync_players()
     finally:
         db.close()
 

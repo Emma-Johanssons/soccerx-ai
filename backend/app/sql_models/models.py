@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Time, Float, Boolean
 from sqlalchemy.orm import relationship
 from ..database import Base
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 
@@ -28,11 +28,19 @@ class Team(Base):
     country_id = Column(Integer, ForeignKey("countries.id"))
     stadium_name = Column(String)
     team_manager = Column(String)
+    last_updated = Column(DateTime, default=datetime.utcnow)
     
     players = relationship("Player", back_populates="team")
     home_matches = relationship("Match", foreign_keys="Match.home_team_id", back_populates="home_team")
     away_matches = relationship("Match", foreign_keys="Match.away_team_id", back_populates="away_team")
     country = relationship("Country", back_populates="teams")
+
+    def is_stale(self) -> bool:
+        """Check if team data is older than 24 hours"""
+        if not self.last_updated:
+            return True
+        stale_threshold = datetime.utcnow() - timedelta(hours=24)
+        return self.last_updated < stale_threshold
 
 class Player(Base):
     __tablename__ = "players"
