@@ -3,7 +3,7 @@ from app.database import SessionLocal
 from app.api_service.football_api import FootballAPIService
 from datetime import datetime, timedelta
 import logging
-from app.sql_models.models import Match, Team, MatchEvent, Player
+from app.sql_models.models import Match, Team, MatchEvent, Player, League, Standing, TeamStatistics, PlayerStatistics, MatchStatistic
 from app.services.data_sync import DataSyncService
 from sqlalchemy.orm import Session
 
@@ -160,26 +160,26 @@ def sync_live_matches():
                 match.away_score = fixture['goals']['away']
                 match.last_updated = datetime.utcnow()
                 
-                # Get and store latest events
-                events = football_api.get_match_events(match.id)
-                if events:
-                    for event_data in events.get('response', []):
-                        existing_event = db.query(MatchEvent).filter(
-                            MatchEvent.match_id == match.id,
-                            MatchEvent.event_time == event_data['time']['elapsed'],
-                            MatchEvent.player_id == event_data['player']['id']
-                        ).first()
-                        
-                        if not existing_event:
-                            event = MatchEvent(
-                                match_id=match.id,
-                                event_time=event_data['time']['elapsed'],
-                                event_type=event_data['type'],
-                                player_id=event_data['player']['id'],
-                                team_id=event_data['team']['id'],
-                                details=event_data['detail']
-                            )
-                            db.add(event)
+                # Get and store latest match statistics
+                stats = football_api.get_match_statistics(match.id)
+                if stats:
+                    for stat_data in stats.get('response', []):
+                        match_stat = MatchStatistic(
+                            match_id=match.id,
+                            team_id=stat_data['team']['id'],
+                            shots_on_goal=stat_data.get('shots', {}).get('on'),
+                            shots_off_goal=stat_data.get('shots', {}).get('off'),
+                            total_shots=stat_data.get('shots', {}).get('total'),
+                            possession=stat_data.get('possession'),
+                            passes=stat_data.get('passes', {}).get('total'),
+                            pass_accuracy=stat_data.get('passes', {}).get('accuracy'),
+                            fouls=stat_data.get('fouls'),
+                            yellow_cards=stat_data.get('cards', {}).get('yellow'),
+                            red_cards=stat_data.get('cards', {}).get('red'),
+                            offsides=stat_data.get('offsides'),
+                            corners=stat_data.get('corners')
+                        )
+                        db.add(match_stat)
                 
         db.commit()
         logger.info("Live matches updated successfully")
@@ -412,3 +412,102 @@ def update_team_in_db(db, team_data):
     except Exception as e:
         logger.error(f"Error updating team: {str(e)}")
         raise
+
+@shared_task
+def sync_league_data():
+    """Sync league data including standings"""
+    db = SessionLocal()
+    api = FootballAPIService()
+    
+    try:
+        # Get all leagues from database
+        leagues = db.query(League).all()
+        
+        for league in leagues:
+            # Update league info
+            league_data = api.get_leagues(league.id)
+            if league_data:
+                # Update league attributes
+                for key, value in league_data.items():
+                    setattr(league, key, value)
+                
+            # Update standings
+            standings_data = api.get_standings(league.id, datetime.now().year)
+            if standings_data:
+                # Clear old standings
+                db.query(Standing).filter_by(league_id=league.id).delete()
+                
+                # Insert new standings
+                for standing in standings_data:
+                    new_standing = Standing(**standing)
+                    db.add(new_standing)
+            
+            league.last_updated = datetime.utcnow()
+        
+        db.commit()
+    finally:
+        db.close()
+
+@shared_task
+def sync_team_statistics():
+    """Sync team statistics"""
+    db = SessionLocal()
+    api = FootballAPIService()
+    
+    try:
+        teams = db.query(Team).all()
+        current_season = datetime.now().year
+        
+        for team in teams:
+            stats_data = api.get_team_statistics(team.id, current_season)
+            if stats_data:
+                # Update or create team statistics
+                stats = db.query(TeamStatistics).filter_by(
+                    team_id=team.id,
+                    season=current_season
+                ).first()
+                
+                if not stats:
+                    stats = TeamStatistics(team_id=team.id, season=current_season)
+                    db.add(stats)
+                
+                for key, value in stats_data.items():
+                    setattr(stats, key, value)
+                
+                stats.last_updated = datetime.utcnow()
+        
+        db.commit()
+    finally:
+        db.close()
+
+@shared_task
+def sync_player_statistics():
+    """Sync player statistics"""
+    db = SessionLocal()
+    api = FootballAPIService()
+    
+    try:
+        players = db.query(Player).all()
+        current_season = datetime.now().year
+        
+        for player in players:
+            stats_data = api.get_player_statistics(player.id, current_season)
+            if stats_data:
+                # Update or create player statistics
+                stats = db.query(PlayerStatistics).filter_by(
+                    player_id=player.id,
+                    season=current_season
+                ).first()
+                
+                if not stats:
+                    stats = PlayerStatistics(player_id=player.id, season=current_season)
+                    db.add(stats)
+                
+                for key, value in stats_data.items():
+                    setattr(stats, key, value)
+                
+                stats.last_updated = datetime.utcnow()
+        
+        db.commit()
+    finally:
+        db.close()

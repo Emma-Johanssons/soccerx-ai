@@ -226,73 +226,33 @@ class FootballAPIService:
         except requests.RequestException:
             raise HTTPException(status_code=500, detail="Failed to fetch players")
 
-    def get_match_details(self, match_id: int):
-        """Get detailed match information including lineups and substitutions."""
+    async def get_match(self, match_id: int):
+        """Get detailed information for a specific match"""
         try:
-            fixture_url = f"{self.base_url}/fixtures"
-            lineups_url = f"{self.base_url}/fixtures/lineups"
-            events_url = f"{self.base_url}/fixtures/events"
+            url = f"{self.base_url}/fixtures"
+            params = {
+                "id": match_id
+            }
             
-            response = requests.get(
-                fixture_url, 
-                headers=self.headers, 
-                params={"id": match_id},
-                timeout=30
-            )
-            
-            if response.status_code != 200:
+            response = requests.get(url, headers=self.headers, params=params)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
                 return None
-
-            match_data = response.json()
-            if not match_data.get('response'):
-                return None
-            
-            fixture_status = match_data.get('response', [{}])[0].get('fixture', {}).get('status', {}).get('short')
-            if fixture_status in ['TBD', 'CANC', 'PST', 'SUSP']:
-                match_data['response'][0]['lineups'] = []
-                match_data['response'][0]['events'] = []
-                return match_data
-            
-            lineups_response = requests.get(
-                lineups_url, 
-                headers=self.headers, 
-                params={"fixture": match_id},
-                timeout=30
-            )
-            if lineups_response.status_code == 200:
-                lineups_data = lineups_response.json()
-                if lineups_data and 'response' in lineups_data:
-                    match_data['response'][0]['lineups'] = lineups_data['response']
-        
-            events_response = requests.get(
-                events_url,
-                headers=self.headers,
-                params={"fixture": match_id},
-                timeout=30
-            )
-            if events_response.status_code == 200:
-                events_data = events_response.json()
-                if events_data and 'response' in events_data:
-                    substitutions = [
-                        event for event in events_data['response']
-                        if event.get('type') == 'subst'
-                    ]
-                    match_data['response'][0]['substitutions'] = substitutions
-        
-            return match_data
-
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="Failed to fetch match details"
+                )
         except requests.ConnectionError:
+            logger.error("Connection error while fetching match details")
             raise HTTPException(status_code=503, detail="API service unavailable")
         except requests.Timeout:
+            logger.error("Timeout while fetching match details")
             raise HTTPException(status_code=504, detail="Request timeout")
-        except JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Invalid JSON response from API")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid parameter value")
-        except SQLAlchemyError:
-            raise HTTPException(status_code=500, detail="Database error")
-        except requests.RequestException:
-            raise HTTPException(status_code=500, detail="Failed to fetch match details")
+        except Exception as e:
+            logger.error(f"Error fetching match details: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     def get_leagues(self):
         """Get all current leagues."""
@@ -321,7 +281,7 @@ class FootballAPIService:
             raise HTTPException(status_code=500, detail="Failed to fetch leagues")
 
     def get_standings(self, league_id: int, season: int):
-        """Get league standings."""
+        """Get standings for a specific league and season"""
         try:
             url = f"{self.base_url}/standings"
             params = {
@@ -329,22 +289,28 @@ class FootballAPIService:
                 "season": season
             }
             
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            response = requests.get(url, headers=self.headers, params=params)
             if response.status_code == 200:
-                return response.json()
-            return None
-        except requests.ConnectionError:
-            raise HTTPException(status_code=503, detail="API service unavailable")
-        except requests.Timeout:
-            raise HTTPException(status_code=504, detail="Request timeout")
-        except JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Invalid JSON response from API")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid parameter value")
-        except SQLAlchemyError:
-            raise HTTPException(status_code=500, detail="Database error")
-        except requests.RequestException:
-            raise HTTPException(status_code=500, detail="Failed to fetch leagues")
+                data = response.json()
+                if not data.get('response'):
+                    return {
+                        "response": [],
+                        "message": "No standings available"
+                    }
+                return data
+            elif response.status_code == 404:
+                return {
+                    "response": [],
+                    "message": "No standings available"
+                }
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="Failed to fetch standings"
+                )
+        except Exception as e:
+            logger.error(f"Error fetching standings: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     def get_team_players(self, team_id: int):
         """Get players for a specific team."""
