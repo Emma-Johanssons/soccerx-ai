@@ -1,12 +1,48 @@
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from ..api_service.football_api import FootballAPIService
-from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics, Position
+from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics, Position, MatchStatistic, Match, MatchStatus
 from ..utils.position_mapper import get_position_id
 import logging
 from ..database import Base, engine
 
 logger = logging.getLogger(__name__)
+
+def initialize_match_statuses(db: Session):
+    """Initialize match statuses in the database"""
+    try:
+        statuses = [
+            {"id": 1, "name": "Not Started", "code": "NS"},
+            {"id": 2, "name": "First Half", "code": "1H"},
+            {"id": 3, "name": "Half Time", "code": "HT"},
+            {"id": 4, "name": "Second Half", "code": "2H"},
+            {"id": 5, "name": "Extra Time", "code": "ET"},
+            {"id": 6, "name": "Penalty", "code": "P"},
+            {"id": 7, "name": "Full Time", "code": "FT"},
+            {"id": 8, "name": "After Extra Time", "code": "AET"},
+            {"id": 9, "name": "Penalties", "code": "PEN"},
+            {"id": 10, "name": "Break Time", "code": "BT"},
+            {"id": 11, "name": "Suspended", "code": "SUSP"},
+            {"id": 12, "name": "Interrupted", "code": "INT"},
+            {"id": 13, "name": "Postponed", "code": "PST"},
+            {"id": 14, "name": "Cancelled", "code": "CANC"},
+            {"id": 15, "name": "Abandoned", "code": "ABD"},
+            {"id": 16, "name": "Technical Loss", "code": "AWD"},
+            {"id": 17, "name": "Walk Over", "code": "WO"},
+            {"id": 18, "name": "Live", "code": "LIVE"}
+        ]
+        
+        for status in statuses:
+            existing = db.query(MatchStatus).filter(MatchStatus.id == status['id']).first()
+            if not existing:
+                db.add(MatchStatus(**status))
+        
+        db.commit()
+        logger.info("Match statuses initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing match statuses: {str(e)}")
+        db.rollback()
+        raise
 
 class DataSyncService:
     def __init__(self, db: Session, football_api: FootballAPIService):
@@ -149,7 +185,7 @@ class DataSyncService:
                                 founded=team_data['team'].get('founded'),
                                 venue_name=team_data['venue'].get('name'),
                                 venue_capacity=team_data['venue'].get('capacity'),
-                                league=league_info['id']
+                                league_id=league_info['id']
                             )
                             existing = self.db.query(Team).filter(Team.id == team.id).first()
                             if existing:
@@ -222,44 +258,27 @@ class DataSyncService:
         pass
 
     def sync_positions(self):
-        """Initialize or update position data"""
+        """Sync player positions"""
         logger.info("Starting positions sync")
-        
-        positions_data = [
-            {"id": 1, "positions": "Goalkeeper"},
-            {"id": 2, "positions": "Defender"},
-            {"id": 3, "positions": "Midfielder"},
-            {"id": 4, "positions": "Attacker"}
-        ]
-        
         try:
-            # First, check if positions table exists and has data
+            # Check if positions already exist
             existing_count = self.db.query(Position).count()
-            logger.info(f"Current positions in database: {existing_count}")
             
-            for pos_data in positions_data:
-                # Check if position exists
-                existing = self.db.query(Position).filter(Position.id == pos_data['id']).first()
-                if not existing:
-                    position = Position(**pos_data)
-                    self.db.add(position)
-                    logger.info(f"Adding position: {position.positions}")
-            
-            self.db.commit()
-            
-            # Verify positions were created
-            final_count = self.db.query(Position).count()
-            logger.info(f"Positions after sync: {final_count}")
-            
-            # List all positions
-            all_positions = self.db.query(Position).all()
-            for pos in all_positions:
-                logger.info(f"Position in DB: ID={pos.id}, Name={pos.positions}")
-            
-            self.update_sync_time('positions')
-            logger.info("Positions synced successfully")
+            if existing_count == 0:
+                # Default positions
+                positions = [
+                    Position(name="Goalkeeper", code="GK"),
+                    Position(name="Defender", code="D"),
+                    Position(name="Midfielder", code="M"),
+                    Position(name="Attacker", code="F")
+                ]
+                self.db.add_all(positions)
+                self.db.commit()
+                logger.info(f"Added {len(positions)} positions")
+            else:
+                logger.info(f"Positions already exist ({existing_count} records)")
         except Exception as e:
-            logger.error(f"Error syncing positions: {str(e)}")
+            logger.error(f"Error syncing positions: {e}")
             self.db.rollback()
             raise
 
@@ -330,50 +349,64 @@ class DataSyncService:
             logger.error(f"Error in player sync process: {str(e)}")
             self.db.rollback()
 
-    async def sync_all(self):
-        """Sync all data in correct order"""
+    async def sync_match_statistics(self):
+        """Sync match statistics for all matches in the database"""
         try:
-            logger.info("Starting full data sync...")
-            
-            # 1. First sync positions (most basic static data)
-            logger.info("Syncing positions...")
-            self.sync_positions()
-            
-            # Verify positions were created
-            positions = self.db.query(Position).all()
-            if not positions:
-                logger.error("Positions were not created! Creating them now...")
-                positions_data = [
-                    {"id": 1, "positions": "Goalkeeper"},
-                    {"id": 2, "positions": "Defender"},
-                    {"id": 3, "positions": "Midfielder"},
-                    {"id": 4, "positions": "Attacker"}
-                ]
-                for pos_data in positions_data:
-                    position = Position(**pos_data)
-                    self.db.add(position)
-                self.db.commit()
-                logger.info("Positions created successfully")
-            
-            # 2. Then sync other static data
-            logger.info("Syncing countries...")
-            self.sync_countries()
-            
-            logger.info("Syncing leagues...")
-            self.sync_leagues()
-            
-            logger.info("Syncing teams...")
-            self.sync_teams()
-            
-            # 3. Finally sync players (depends on positions and teams)
-            logger.info("Syncing players...")
-            self.sync_players()
-            
-            logger.info("All data synced successfully")
+            # Get all matches that need statistics
+            matches = self.db.query(Match).all()
+            for match in matches:
+                try:
+                    stats = await self.football_api.get_match_statistics(match.id)
+                    if stats:
+                        # First, remove existing statistics for this match
+                        self.db.query(MatchStatistic).filter(
+                            MatchStatistic.match_id == match.id
+                        ).delete()
+                        
+                        for stat_data in stats.get('response', []):
+                            match_stat = MatchStatistic(
+                                match_id=match.id,
+                                team_id=stat_data['team']['id'],
+                                shots_on_goal=stat_data.get('shots', {}).get('on'),
+                                shots_off_goal=stat_data.get('shots', {}).get('off'),
+                                total_shots=stat_data.get('shots', {}).get('total'),
+                                possession=stat_data.get('possession'),
+                                passes=stat_data.get('passes', {}).get('total'),
+                                pass_accuracy=stat_data.get('passes', {}).get('accuracy'),
+                                fouls=stat_data.get('fouls'),
+                                yellow_cards=stat_data.get('cards', {}).get('yellow'),
+                                red_cards=stat_data.get('cards', {}).get('red'),
+                                offsides=stat_data.get('offsides'),
+                                corners=stat_data.get('corners'),
+                                last_updated=datetime.utcnow()
+                            )
+                            self.db.add(match_stat)
+                        self.db.commit()
+                except Exception as e:
+                    logger.error(f"Error syncing statistics for match {match.id}: {e}")
+                    self.db.rollback()
+                    continue
         except Exception as e:
-            logger.error(f"Error during sync_all: {e}")
+            logger.error(f"Error syncing match statistics: {e}")
             self.db.rollback()
             raise
+
+    async def sync_all(self):
+        """Sync all data"""
+        logger.info("Starting full data sync...")
+        try:
+            self.sync_positions()
+            self.sync_countries()
+            self.sync_leagues()
+            self.sync_teams()
+            await self.sync_match_statistics()
+            logger.info("Full data sync completed")
+        except Exception as e:
+            logger.error(f"Error during sync_all: {e}")
+            raise
+
+# Make sure initialize_match_statuses is explicitly exported
+__all__ = ['DataSyncService', 'initialize_match_statuses']
 
 class DataFetchStrategy:
     def __init__(self):
