@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..api_service.football_api import FootballAPIService
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
+from ..sql_models.models import Match
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -16,17 +17,49 @@ async def test_api():
     return football_api.test_api()
 
 @router.get("/")
-async def get_matches(completed: bool = False, db: Session = Depends(get_db)):
+def get_matches(
+    completed: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """Get matches for today"""
     try:
-        matches = football_api.get_matches(completed=completed)
+        logger.info(f"Fetching {'completed' if completed else 'upcoming'} matches")
+        
+        # Get today's date
+        today = datetime.now().strftime("%Y-%m-%d")
+        logger.info(f"Fetching matches for date: {today}")
+        
+        # Call API
+        response = football_api.get_matches(date=today)
+        logger.info(f"API Response received: {response}")
+        
+        if not response or 'response' not in response:
+            logger.warning("No matches found or invalid response")
+            return {
+                "status": "success",
+                "data": [],
+                "message": "No matches found"
+            }
+            
+        matches = response['response']
+        # Filter based on completed parameter
+        if completed:
+            matches = [m for m in matches if m['fixture']['status']['short'] == 'FT']
+        else:
+            matches = [m for m in matches if m['fixture']['status']['short'] != 'FT']
+            
         return {
             "status": "success",
-            "data": matches.get('response', []),
-            "message": "Matches retrieved successfully"
+            "data": matches,
+            "message": f"Successfully retrieved {len(matches)} matches"
         }
+            
     except Exception as e:
-        logger.error(f"Error fetching matches: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in get_matches: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching matches: {str(e)}"
+        )
 
 @router.get("/league/{league_id}")
 async def get_league_matches(league_id: int, db: Session = Depends(get_db)):

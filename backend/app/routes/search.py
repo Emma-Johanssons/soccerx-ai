@@ -39,7 +39,7 @@ async def search(q: str, db: Session = Depends(get_db)):
                     'name': league.name,
                     'type': 'league',
                     'logo': league.logo,
-                    'country': league.country
+                    'country': league.country.country_name if league.country else None
                 })
             except AttributeError as e:
                 logger.error(f"Error formatting league {league.id}: {str(e)}")
