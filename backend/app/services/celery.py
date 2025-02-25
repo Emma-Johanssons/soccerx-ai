@@ -16,17 +16,17 @@ celery.conf.update(
         "app.tasks.*": {"queue": "default"}
     },
     beat_schedule={
-        'sync-league-data': {
-            'task': 'app.tasks.sync_league_data',
-            'schedule': crontab(hour=0, minute=0)  # Run at midnight
+        'sync-todays-matches': {
+            'task': 'app.tasks.sync_todays_matches',
+            'schedule': crontab(minute='*/30')  # Every 30 minutes
         },
-        'sync-team-statistics': {
-            'task': 'app.tasks.sync_team_statistics',
-            'schedule': crontab(hour=1, minute=0)  # Run at 1 AM
+        'sync-live-matches': {
+            'task': 'app.tasks.sync_live_matches',
+            'schedule': crontab(minute='*/1')  # Every minute
         },
-        'sync-player-statistics': {
-            'task': 'app.tasks.sync_player_statistics',
-            'schedule': crontab(hour=2, minute=0)  # Run at 2 AM
+        'sync-completed-matches': {
+            'task': 'app.tasks.sync_completed_matches',
+            'schedule': crontab(hour='*/4')  # Every 4 hours
         }
     }
 )

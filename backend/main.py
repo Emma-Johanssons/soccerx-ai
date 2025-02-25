@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routes import teams, players, matches, leagues, search, standings
 from app.database import recreate_tables, SessionLocal, Base, engine
-from app.services.data_sync import DataSyncService, initialize_match_statuses
+from app.database_init import initialize_database
+from app.services.data_sync import DataSyncService
 from app.api_service.football_api import FootballAPIService
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
@@ -24,12 +25,8 @@ async def lifespan(app: FastAPI):
         logger.info("Creating database tables...")
         Base.metadata.create_all(bind=engine)
         
-        # Initialize match statuses
-        db = SessionLocal()
-        logger.info("Initializing match statuses...")
-        initialize_match_statuses(db)
-        
         # Then proceed with data sync
+        db = SessionLocal()
         football_api = FootballAPIService()
         sync_service = DataSyncService(db, football_api)
         await sync_service.sync_all()
