@@ -12,3 +12,5 @@ test.py
 __pycache__/
 *.pyc
 *.pyo
+
+backend/celerybeat-schedule

@@ -14,7 +14,7 @@ football_api = FootballAPIService()
 async def get_leagues():
     try:
         logger.info("Starting leagues fetch request")
-        response =  football_api.get_leagues()
+        response = football_api.get_leagues()
         
         logger.info(f"Raw API response received: {response}")
         
@@ -24,15 +24,26 @@ async def get_leagues():
             
             # Format the leagues data
             formatted_leagues = []
+            
             for league in leagues:
                 if league.get('league'):
+                    league_name = league['league']['name']
+                    country_name = league['country']['name']
+                    
+                    # Special handling for Premier League
+                    if league_name == "Premier League":
+                        # Append country name to Premier League
+                        display_name = f"Premier League - {country_name}"
+                    else:
+                        display_name = league_name
+                        
                     formatted_leagues.append({
                         'league': {
                             'id': league['league']['id'],
-                            'name': league['league']['name'],
+                            'name': display_name,  # Use the modified name
                             'type': league['league']['type'],
                             'logo': league['league'].get('logo'),
-                            'country': league['country']['name']
+                            'country': country_name
                         }
                     })
             

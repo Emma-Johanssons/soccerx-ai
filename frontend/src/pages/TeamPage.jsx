@@ -34,9 +34,22 @@ const TeamPage = () => {
           setTeamData(initialTeamData);
         }
 
-        // Fetch team statistics
+        // Get league ID from team data or initial data
+        const leagueId =
+          teamData?.team?.league?.id || initialTeamData?.league?.id;
+
+        // Fetch team statistics with league info
         const statsResponse = await axios.get(
-          `http://localhost:8000/api/teams/${id}/statistics`
+          `http://localhost:8000/api/teams/${id}/statistics`,
+          {
+            params: {
+              league: leagueId,
+            },
+          }
+        );
+        console.log(
+          "Raw team statistics response:",
+          JSON.stringify(statsResponse.data, null, 2)
         );
 
         // Fetch team players
@@ -55,8 +68,10 @@ const TeamPage = () => {
           }
         }
 
-        if (playersResponse.data?.data) {
-          setPlayers(playersResponse.data.data);
+        if (Array.isArray(playersResponse.data?.data?.players)) {
+          setPlayers(playersResponse.data.data.players);
+        } else {
+          setPlayers([]);
         }
       } catch (error) {
         console.error("Error fetching team data:", error);
@@ -67,7 +82,28 @@ const TeamPage = () => {
     };
 
     fetchTeamData();
-  }, [id, initialTeamData]);
+  }, [id, initialTeamData, teamData?.team?.league?.id]);
+
+  const fetchTeamStats = async () => {
+    try {
+      const statsResponse = await axios.get(
+        `http://localhost:8000/team/stats/${teamId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      console.log("Fetched Team Stats Response:", statsResponse.data);
+
+      if (statsResponse.data?.data) {
+        setTeamStats(statsResponse.data.data);
+      } else {
+        console.warn("No data returned for team statistics.");
+      }
+    } catch (error) {
+      console.error("Error fetching team stats:", error);
+    }
+  };
 
   const handlePlayerClick = (player) => {
     navigate(`/team/${id}/player/${player.id}`, {
