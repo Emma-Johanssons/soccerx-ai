@@ -1,10 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..sql_models.models import League, Team, Standing
+from ..sql_models.models import League, Team
 from ..api_service.football_api import FootballAPIService
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,45 +67,86 @@ async def get_leagues():
 @router.get("/{league_id}")
 async def get_league(league_id: int, db: Session = Depends(get_db)):
     try:
+        logger.info(f"Fetching league with ID: {league_id} from database")
+        
         # First try to get from database
         league = db.query(League).filter(League.id == league_id).first()
         
-        if league and (datetime.utcnow() - league.last_updated).days < 1:
-            # Get standings from database if data is fresh
-            standings = db.query(Standing).filter(
-                Standing.league_id == league_id
-            ).all()
+        if league:
+            # Get teams for this league from database
+            teams = db.query(Team).filter(Team.league == league_id).all()
+            
+            # Get standings from API (since they change frequently)
+            standings_response =  football_api.get_standings(league_id, 2024)
             
             return {
                 "status": "success",
                 "data": {
-                    "league": league,
-                    "standings": standings
-                }
+                    "league": {
+                        "id": league.id,
+                        "name": league.name,
+                        "logo": league.logo,
+                        "type": "League"
+                    },
+                    "country": {
+                        "name": league.country
+                    },
+                    "seasons": [
+                        {
+                            "year": 2024,
+                            "current": True,
+                            "standings": standings_response['response'][0]['league']['standings'] if standings_response and 'response' in standings_response else []
+                        }
+                    ],
+                    "teams": [
+                        {
+                            "id": team.id,
+                            "name": team.name,
+                            "logo": team.logo_url,
+                            "venue_name": team.venue_name,
+                            "venue_capacity": team.venue_capacity
+                        } for team in teams
+                    ]
+                },
+                "message": "League retrieved successfully"
             }
         
-        # If not in database or data is stale, fetch from API
-        response = await football_api.get_league(league_id)
-        if response:
-            # Store in database for next time
-            if not league:
-                league = League(**response['league'])
-                db.add(league)
-            else:
-                for key, value in response['league'].items():
-                    setattr(league, key, value)
+        # If not in database, fallback to API
+        logger.info(f"League not found in database, fetching from API")
+        response = football_api.get_leagues()
+        
+        if response and 'response' in response:
+            leagues = response['response']
+            league_data = next(
+                (league for league in leagues 
+                 if league['league']['id'] == league_id), 
+                None
+            )
             
-            # Update standings
-            standings_data = response.get('standings', [])
-            for standing_data in standings_data:
-                standing = Standing(**standing_data)
-                db.add(standing)
-            
-            db.commit()
-            return {"status": "success", "data": response}
-            
-        raise HTTPException(status_code=404, detail="League not found")
+            if league_data:
+                standings_response =  football_api.get_standings(league_id, 2024)
+                
+                return {
+                    "status": "success",
+                    "data": {
+                        "league": league_data['league'],
+                        "country": league_data['country'],
+                        "seasons": [
+                            {
+                                "year": 2024,
+                                "current": True,
+                                "standings": standings_response['response'][0]['league']['standings'] if standings_response and 'response' in standings_response else []
+                            }
+                        ]
+                    },
+                    "message": "League retrieved successfully"
+                }
+                
+        raise HTTPException(status_code=404, detail=f"League with ID {league_id} not found")
         
     except Exception as e:
         logger.error(f"Error fetching league: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching league: {str(e)}"
+        ) 
