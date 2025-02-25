@@ -4,7 +4,7 @@ import MatchDetails from "./MatchDetails";
 
 const MAJOR_LEAGUES = {
   "UEFA Champions League": { id: 2, enabled: true },
-  "Premier League": { id: 39, enabled: true }, // English Premier League
+  "Premier League - England": { id: 39, enabled: true }, // English Premier League specifically
   "La Liga": { id: 140, enabled: true },
   Bundesliga: { id: 78, enabled: true },
   "Serie A": { id: 135, enabled: true },
@@ -39,22 +39,30 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
         const groupedMatches = matchesData.reduce((acc, match) => {
           if (!match.league?.name || !match.league?.id) return acc;
 
-          const leagueName = match.league.name;
           const leagueId = match.league.id;
+          const leagueName = match.league.name;
+          const countryName = match.league.country;
           const matchStatus = match.fixture?.status?.short || "";
 
-          // Check both league name and ID match
-          const isCorrectLeague = MAJOR_LEAGUES[leagueName]?.id === leagueId;
+          // For Premier League, create a specific name with country
+          const displayName =
+            leagueName === "Premier League"
+              ? `Premier League - ${countryName}`
+              : leagueName;
 
-          if (!showAllLeagues && !isCorrectLeague) {
-            return acc;
+          // When not showing all leagues, only show matches from MAJOR_LEAGUES
+          if (!showAllLeagues) {
+            const majorLeague = Object.entries(MAJOR_LEAGUES).find(
+              ([_, league]) => league.id === leagueId
+            );
+            if (!majorLeague) return acc;
           }
 
-          if (!acc[leagueName]) {
-            acc[leagueName] = [];
+          if (!acc[displayName]) {
+            acc[displayName] = [];
           }
 
-          acc[leagueName].push({
+          acc[displayName].push({
             id: match.fixture?.id || Math.random(),
             time: match.fixture?.date
               ? new Date(match.fixture.date).toLocaleTimeString([], {
@@ -77,7 +85,7 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
             competition: match.league.name,
           });
 
-          availableLeagues.add(leagueName);
+          availableLeagues.add(displayName);
           return acc;
         }, {});
 

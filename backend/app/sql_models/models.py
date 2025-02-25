@@ -20,6 +20,7 @@ class Team(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
+    code = Column(String, nullable=True)
     logo_url = Column(String)
     founded = Column(Integer)
     venue_name = Column(String)
@@ -153,7 +154,7 @@ class Country(Base):
     __tablename__ = "countries"
     
     id = Column(Integer, primary_key=True, index=True)
-    country_name = Column(String)
+    country_name = Column(String, nullable=False)
     teams = relationship("Team", back_populates="country")
     players = relationship("Player", back_populates="country")
     leagues = relationship("League", back_populates="country")
@@ -172,6 +173,8 @@ class Position(Base):
     __tablename__ = "positions"
     
     id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False) 
+    code = Column(String, nullable=True)
     positions = Column(String)
     players = relationship("Player", back_populates="position")
 

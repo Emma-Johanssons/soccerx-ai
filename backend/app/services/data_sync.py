@@ -222,42 +222,25 @@ class DataSyncService:
         pass
 
     def sync_positions(self):
-        """Initialize or update position data"""
-        logger.info("Starting positions sync")
-        
-        positions_data = [
-            {"id": 1, "positions": "Goalkeeper"},
-            {"id": 2, "positions": "Defender"},
-            {"id": 3, "positions": "Midfielder"},
-            {"id": 4, "positions": "Attacker"}
-        ]
-        
+        """Sync positions table with default values"""
         try:
-            # First, check if positions table exists and has data
+            logger.info("Starting positions sync")
             existing_count = self.db.query(Position).count()
-            logger.info(f"Current positions in database: {existing_count}")
             
-            for pos_data in positions_data:
-                # Check if position exists
-                existing = self.db.query(Position).filter(Position.id == pos_data['id']).first()
-                if not existing:
-                    position = Position(**pos_data)
-                    self.db.add(position)
-                    logger.info(f"Adding position: {position.positions}")
-            
-            self.db.commit()
-            
-            # Verify positions were created
-            final_count = self.db.query(Position).count()
-            logger.info(f"Positions after sync: {final_count}")
-            
-            # List all positions
-            all_positions = self.db.query(Position).all()
-            for pos in all_positions:
-                logger.info(f"Position in DB: ID={pos.id}, Name={pos.positions}")
-            
-            self.update_sync_time('positions')
-            logger.info("Positions synced successfully")
+            if existing_count == 0:
+                default_positions = [
+                    Position(id=1, name='Goalkeeper', code='GK'),
+                    Position(id=2, name='Defender', code='DEF'),
+                    Position(id=3, name='Midfielder', code='MID'),
+                    Position(id=4, name='Attacker', code='ATT')
+                ]
+                
+                self.db.bulk_save_objects(default_positions)
+                self.db.commit()
+                logger.info(f"Added {len(default_positions)} default positions")
+            else:
+                logger.info("Positions already exist in database")
+                
         except Exception as e:
             logger.error(f"Error syncing positions: {str(e)}")
             self.db.rollback()

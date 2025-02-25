@@ -248,22 +248,28 @@ class FootballAPIService:
                 return None
             
             fixture_status = match_data.get('response', [{}])[0].get('fixture', {}).get('status', {}).get('short')
-            if fixture_status in ['TBD', 'CANC', 'PST', 'SUSP']:
+            
+            # Only skip lineups for matches that haven't started or were cancelled
+            if fixture_status in ['TBD', 'CANC', 'PST', 'SUSP', 'NS']:
                 match_data['response'][0]['lineups'] = []
                 match_data['response'][0]['events'] = []
                 return match_data
             
+            # Fetch lineups for all other statuses (including FT - full time)
             lineups_response = requests.get(
                 lineups_url, 
                 headers=self.headers, 
                 params={"fixture": match_id},
                 timeout=30
             )
+            
             if lineups_response.status_code == 200:
                 lineups_data = lineups_response.json()
                 if lineups_data and 'response' in lineups_data:
                     match_data['response'][0]['lineups'] = lineups_data['response']
-        
+                else:
+                    match_data['response'][0]['lineups'] = []  # Empty if no lineup data
+            
             events_response = requests.get(
                 events_url,
                 headers=self.headers,
@@ -407,9 +413,6 @@ class FootballAPIService:
         try:
             url = f"{self.base_url}/teams/statistics"
             
-            if not league_id:
-                return None
-            
             if not season:
                 current_date = datetime.now()
                 season = current_date.year
@@ -418,9 +421,11 @@ class FootballAPIService:
 
             params = {
                 "team": team_id,
-                "league": league_id,
                 "season": season
             }
+            
+            if league_id:
+                params["league"] = league_id
             
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
             
@@ -434,19 +439,10 @@ class FootballAPIService:
 
             return data
 
-        except requests.ConnectionError:
-            raise HTTPException(status_code=503, detail="API service unavailable")
-        except requests.Timeout:
-            raise HTTPException(status_code=504, detail="Request timeout")
-        except JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Invalid JSON response from API")
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid parameter value")
-        except SQLAlchemyError:
-            raise HTTPException(status_code=500, detail="Database error")
-        except requests.RequestException:
-            raise HTTPException(status_code=500, detail="Failed to fetch leagues")
-        
+        except Exception as e:
+            logger.error(f"Error fetching team statistics: {str(e)}")
+            return None
+
     def get_player_statistics(self, season: int, player_id: int, team: int = None):
         """Get player statistics for a season."""
         try:

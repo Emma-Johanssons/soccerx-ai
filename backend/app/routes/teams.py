@@ -4,7 +4,7 @@ from ..database import get_db
 from ..api_service.football_api import FootballAPIService
 from ..services.celery import celery
 from ..tasks import fetch_team_statistics
-from ..sql_models.models import Team, TeamStatistics
+from ..sql_models.models import Team, TeamStatistics, Player, Position
 from ..services.data_sync import DataSyncService
 import logging
 from datetime import datetime, timedelta
@@ -97,13 +97,66 @@ async def get_teams(db: Session = Depends(get_db)):
         )
 
 @router.get("/{team_id}")
-@cache(expire=3600)  # Cache for 1 hour
-async def get_team(team_id: int, db: Session = Depends(get_db)):
-    data_service = DataService(db)
+def get_team(team_id: int, db: Session = Depends(get_db)):
+    """Get team details"""
     try:
-        team = await data_service.get_team(team_id)
-        return {"status": "success", "data": team}
+        # First try to get from database
+        team = db.query(Team).filter(Team.id == team_id).first()
+        
+        if not team:
+            # If not in database, fetch from API and save
+            team_data = football_api.get_team(team_id)
+            if team_data and team_data.get('response'):
+                team_info = team_data['response'][0]['team']
+                venue_info = team_data['response'][0].get('venue', {})
+                try:
+                    team = Team(
+                        id=team_id,
+                        name=team_info.get('name'),
+                        code=team_info.get('code'),
+                        logo_url=team_info.get('logo'),
+                        founded=team_info.get('founded'),
+                        venue_name=venue_info.get('name'),
+                        venue_capacity=venue_info.get('capacity'),
+                        country_id=None,  # We'll need to handle this separately
+                        league=None,  # We'll need to handle this separately
+                        last_updated=datetime.utcnow()
+                    )
+                    db.add(team)
+                    db.commit()
+                    logger.info(f"Created new team: {team_id} - {team_info.get('name')}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Error creating team {team_id}: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Error creating team: {str(e)}")
+        
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+            
+        # Return team data as a dictionary
+        return {
+            "status": "success",
+            "data": {
+                "team": {
+                    "id": team.id,
+                    "name": team.name,
+                    "code": team.code,
+                    "logo": team.logo_url,
+                    "venue": {
+                        "name": team.venue_name,
+                        "capacity": team.venue_capacity
+                    } if team.venue_name else None,
+                    "founded": team.founded,
+                    "country": team.country.country_name if team.country else None,
+                    "league": team.league
+                }
+            }
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error fetching team data: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{team_id}/matches")
@@ -137,42 +190,85 @@ def get_team_matches(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{team_id}/players")
-async def get_team_players(team_id: int):
+def get_team_players(team_id: int, db: Session = Depends(get_db)):
+    """Get players for a specific team"""
     try:
-        logger.info(f"Fetching players for team {team_id}")
-        current_season = datetime.now().year
-        if datetime.now().month < 8:
-            current_season -= 1
-
-        response =  football_api.get_team_squad(team_id, current_season)
+        # First try to get from database
+        players = db.query(Player).filter(Player.team_id == team_id).all()
         
-        if not response or 'response' not in response:
-            logger.error(f"No squad data found for team {team_id}")
-            raise HTTPException(status_code=404, detail="Team squad not found")
+        if not players:
+            # If not in database, fetch from API and save
+            players_data = football_api.get_team_players(team_id)
+            if players_data and players_data.get('response'):
+                players = []
+                # Get or create default positions first
+                position_map = {
+                    "Goalkeeper": db.query(Position).filter(Position.name == "Goalkeeper").first(),
+                    "Defender": db.query(Position).filter(Position.name == "Defender").first(),
+                    "Midfielder": db.query(Position).filter(Position.name == "Midfielder").first(),
+                    "Attacker": db.query(Position).filter(Position.name == "Attacker").first()
+                }
+                
+                # Create any missing positions
+                for pos_name, pos in position_map.items():
+                    if not pos:
+                        position_map[pos_name] = Position(name=pos_name)
+                        db.add(position_map[pos_name])
+                
+                try:
+                    db.flush()  # Ensure positions are created and have IDs
+                except Exception as e:
+                    logger.error(f"Error creating positions: {str(e)}")
+                    db.rollback()
+                    raise HTTPException(status_code=500, detail="Error creating positions")
 
-        squad_data = response['response'][0].get('players', [])
+                # Now create players with proper position references
+                for player_info in players_data['response'][0]['players']:
+                    try:
+                        position_name = player_info.get('position')
+                        position = position_map.get(position_name)
+                        
+                        if not position:
+                            logger.warning(f"Unknown position {position_name} for player {player_info['name']}")
+                            continue
+                            
+                        player = Player(
+                            id=player_info['id'],
+                            name=player_info['name'],
+                            team_id=team_id,
+                            position_id=position.id,
+                            birth_date=None  # We'll handle this separately if needed
+                        )
+                        db.add(player)
+                        players.append(player)
+                        
+                    except Exception as e:
+                        logger.error(f"Error creating player {player_info.get('name')}: {str(e)}")
+                        continue
+                
+                try:
+                    db.commit()
+                    logger.info(f"Created {len(players)} players for team {team_id}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Error committing players for team {team_id}: {str(e)}")
+                    raise HTTPException(status_code=500, detail=f"Error saving players: {str(e)}")
         
-        # Log the first player to check the data structure
-        if squad_data:
-            logger.info(f"Sample player data: {squad_data[0]}")
-
-        formatted_players = [
-            {
-                'id': player['id'],  # Make sure this matches the API response
-                'name': player['name'],
-                'age': player.get('age'),
-                'number': player.get('number'),
-                'position': player.get('position'),
-                'photo': f"https://media.api-sports.io/football/players/{player['id']}.png"
-            }
-            for player in squad_data
-        ]
-
+        # Return players data as a list of dictionaries
         return {
             "status": "success",
-            "data": formatted_players
+            "data": {
+                "players": [{
+                    "id": player.id,
+                    "name": player.name,
+                    "position": player.position.name if player.position else None,
+                    "birth_date": player.birth_date.isoformat() if player.birth_date else None
+                } for player in players]
+            }
         }
-
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error fetching team players: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -371,53 +467,73 @@ async def get_team_statistics(team_id: int):
         if datetime.now().month < 8:  # If before August, use previous year
             current_season -= 1
             
-        logger.info(f"Using season: {current_season}")
+        # Get team info first
+        team_info = football_api.get_team_info(team_id)
+        league_id = None
         
-        # List of major leagues to check
-        leagues_to_check = [
-            39,  # Premier League
-            140, # La Liga
-            78,  # Bundesliga
-            135, # Serie A
-            61,  # Ligue 1
-            2,   # Champions League
-            3,   # Europa League
-            848, # Conference League
-            88,  # Eredivisie
-            94,  # Primeira Liga
-            203, # Super Lig
-            71,  # Brasileirao
-            128  # Argentine Primera División
-        ]
+        if team_info and 'response' in team_info:
+            # Try to get the primary league ID from team info
+            team_data = team_info['response'][0]
+            if 'team' in team_data and 'league' in team_data:
+                league_id = team_data['league'].get('id')
         
-        # Try each league until we find valid statistics
-        for league_id in leagues_to_check:
-            logger.info(f"Checking league {league_id} for team {team_id}")
-            
-            # Try to get statistics for this league
-            response =  football_api.get_team_statistics(team_id, league_id, current_season)
-            
+        # If no league found from team info, try to find it from team matches
+        if not league_id:
+            matches = football_api.get_team_matches(team_id, last=1)
+            if matches and 'response' in matches and matches['response']:
+                league_id = matches['response'][0]['league']['id']
+        
+        # Get statistics for the identified league
+        if league_id:
+            response = football_api.get_team_statistics(team_id, league_id, current_season)
             if response and 'response' in response:
-                # Check if we have actual statistics (not all zeros)
-                fixtures = response['response'].get('fixtures', {})
-                if fixtures.get('played', {}).get('total', 0) > 0:
-                    logger.info(f"Found valid statistics in league {league_id}")
-                    return {
-                        "status": "success",
-                        "data": response['response'],
-                        "message": "Team statistics retrieved successfully"
-                    }
+                return {
+                    "status": "success",
+                    "data": response['response']
+                }
         
-        # If we get here, no valid statistics were found
-        logger.error(f"No valid statistics found for team {team_id} in any league")
-        raise HTTPException(status_code=404, detail="No statistics found")
+        # Return default response if no statistics found
+        return {
+            "status": "success",
+            "data": {
+                "league": None,
+                "team": {"id": team_id},
+                "fixtures": {
+                    "played": {"total": 0},
+                    "wins": {"total": 0},
+                    "draws": {"total": 0},
+                    "loses": {"total": 0}
+                },
+                "goals": {
+                    "for": {"total": {"total": 0}},
+                    "against": {"total": {"total": 0}}
+                },
+                "clean_sheet": {"total": 0},
+                "form": ""
+            }
+        }
             
     except Exception as e:
         logger.error(f"Error in get_team_statistics: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        return {
+            "status": "success",
+            "data": {
+                "league": None,
+                "team": {"id": team_id},
+                "fixtures": {
+                    "played": {"total": 0},
+                    "wins": {"total": 0},
+                    "draws": {"total": 0},
+                    "loses": {"total": 0}
+                },
+                "goals": {
+                    "for": {"total": {"total": 0}},
+                    "against": {"total": {"total": 0}}
+                },
+                "clean_sheet": {"total": 0},
+                "form": ""
+            }
+        }
 
 @router.get("/live/matches")
 @cache(expire=300)  # Cache for 5 minutes

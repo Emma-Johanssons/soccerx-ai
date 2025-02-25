@@ -27,37 +27,85 @@ async def get_player_details(
 
         logger.info(f"Attempting to fetch detailed stats for player {player_id}")
         
-        # Get player statistics first
-        stats_response =  football_api.get_player_statistics(
+        # Get player information first to ensure correct age
+        player_info = football_api.get_player_info(player_id)
+        if not player_info or 'response' not in player_info:
+            logger.error(f"Failed to get player info for player {player_id}")
+            raise HTTPException(status_code=404, detail="Player not found")
+            
+        # Extract player details including correct age
+        player_details = player_info['response'][0]
+        
+        # Get player statistics for both current and previous season to catch transfers
+        stats_response = football_api.get_player_statistics(
             player_id=player_id,
             season=current_season
         )
         
-        logger.info(f"Stats response: {json.dumps(stats_response, indent=2) if stats_response else 'None'}")
+        # Also get previous season's stats if we're after August
+        if datetime.now().month >= 8:
+            prev_stats_response = football_api.get_player_statistics(
+                player_id=player_id,
+                season=current_season - 1
+            )
+            
+            # If we have previous season stats, check for matches after August
+            if prev_stats_response and prev_stats_response.get('response'):
+                for stat in prev_stats_response['response']:
+                    if 'statistics' in stat:
+                        for match_stat in stat['statistics']:
+                            # Only include stats from matches after August
+                            match_date = datetime.strptime(match_stat.get('date', ''), '%Y-%m-%d')
+                            if match_date.month >= 8:
+                                if not stats_response:
+                                    stats_response = {'response': []}
+                                stats_response['response'].append(stat)
 
         if stats_response and stats_response.get('response'):
+            all_stats = stats_response['response']
+            
+            if len(all_stats) > 1:
+                logger.info(f"Found multiple team statistics for player {player_id}")
+                combined_stats = all_stats[0].copy()
+                combined_stats['player'] = player_details  # Use correct player details
+                
+                for stat in all_stats[1:]:
+                    for key in combined_stats.get('games', {}):
+                        if isinstance(combined_stats['games'][key], (int, float)):
+                            combined_stats['games'][key] = (combined_stats['games'].get(key, 0) or 0) + (stat['games'].get(key, 0) or 0)
+                    
+                    for key in combined_stats.get('goals', {}):
+                        if isinstance(combined_stats['goals'][key], (int, float)):
+                            combined_stats['goals'][key] = (combined_stats['goals'].get(key, 0) or 0) + (stat['goals'].get(key, 0) or 0)
+                    
+                    if 'competitions' not in combined_stats:
+                        combined_stats['competitions'] = []
+                    
+                    if 'league' in stat:
+                        combined_stats['competitions'].append({
+                            'league': stat['league'],
+                            'team': stat['team'],
+                            'games': stat['games'],
+                            'goals': stat['goals']
+                        })
+                
+                return {
+                    "status": "success",
+                    "data": combined_stats
+                }
+            
+            # If single team stats, still use correct player details
+            all_stats[0]['player'] = player_details
             return {
                 "status": "success",
-                "data": stats_response['response'][0]
+                "data": all_stats[0]
             }
 
-        # If no statistics found, get basic player info from squad
-        squad_response = football_api.get_team_squad(team_id, current_season)
-        if not squad_response or 'response' not in squad_response:
-            logger.error(f"Failed to get squad data for team {team_id}")
-            raise HTTPException(status_code=404, detail="Team not found")
-
-        squad_data = squad_response['response'][0].get('players', [])
-        player_info = next((p for p in squad_data if p['id'] == player_id), None)
-
-        if not player_info:
-            logger.error(f"Player {player_id} not found in team {team_id}")
-            raise HTTPException(status_code=404, detail="Player not found in team")
-
+        # If no statistics found, return basic player info
         return {
             "status": "success",
             "data": {
-                "player": player_info,
+                "player": player_details,
                 "statistics": []
             }
         }
