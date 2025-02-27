@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 class Settings(BaseSettings):
     # API Settings
@@ -15,6 +16,8 @@ class Settings(BaseSettings):
     
     # Redis Settings
     REDIS_URL: str
+    OPENAI_API_KEY: Optional[str] = None
+
 
     @property
     def DATABASE_URL(self) -> str:

@@ -14,12 +14,14 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy entrypoint script and make it executable
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
-
 # Copy the rest of the application
 COPY . .
 
+# Set proper permissions for entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Add the app directory to PYTHONPATH
 ENV PYTHONPATH=/app
+
+# Set the entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]

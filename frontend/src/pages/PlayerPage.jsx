@@ -15,6 +15,27 @@ const PlayerPage = () => {
   const [careerStats, setCareerStats] = useState(null);
   const [showDetailedStats, setShowDetailedStats] = useState(false);
 
+  const calculateAge = (birthdate) => {
+    if (!birthdate) return "-";
+
+    const birthDate = new Date(birthdate);
+    const today = new Date();
+
+    let age = today.getFullYear() - birthDate.getFullYear();
+
+    // Check if birthday has occurred this year
+    const hasBirthdayPassed =
+      today.getMonth() > birthDate.getMonth() ||
+      (today.getMonth() === birthDate.getMonth() &&
+        today.getDate() >= birthDate.getDate());
+
+    if (!hasBirthdayPassed) {
+      age -= 1;
+    }
+
+    return age;
+  };
+
   useEffect(() => {
     // Scroll to top when component mounts
     window.scrollTo(0, 0);
@@ -39,9 +60,40 @@ const PlayerPage = () => {
         console.log("Player data response:", currentResponse.data);
 
         if (currentResponse.data?.data) {
-          setPlayerData(currentResponse.data.data);
-          setCurrentStats(currentResponse.data.data.statistics?.[0]);
-          setCareerStats(historyResponse.data.data.career_summary);
+          const data = currentResponse.data.data;
+
+          // Check if there's a live match
+          const hasLiveMatch = data.statistics?.some(
+            (stat) =>
+              stat.games?.status === "LIVE" || stat.games?.status === "IN_PLAY"
+          );
+
+          // Filter out statistics with zero appearances or null values
+          const validStats = data.statistics.filter(
+            (stat) =>
+              stat.games?.appearences > 0 &&
+              Object.values(stat.games).some((value) => value !== null)
+          );
+
+          // If we found valid stats
+          if (validStats.length > 0) {
+            // Find current team stats first
+            const currentTeamStats = validStats.find(
+              (stat) => stat.team.id === parseInt(teamId)
+            );
+
+            setPlayerData({
+              ...data,
+              currentTeamStats: currentTeamStats || validStats[0],
+              statistics: validStats, // Only include teams with appearances
+              hasLiveMatch,
+            });
+            setCurrentStats(currentTeamStats || validStats[0]);
+          }
+
+          if (historyResponse.data?.data?.career_summary) {
+            setCareerStats(historyResponse.data.data.career_summary);
+          }
         } else {
           throw new Error("No player data received");
         }
@@ -53,8 +105,23 @@ const PlayerPage = () => {
       }
     };
 
+    // Initial fetch
     fetchPlayerData();
-  }, [teamId, playerId]);
+
+    // Set up interval based on whether there's a live match
+    let interval;
+    if (playerData?.hasLiveMatch) {
+      // Update every minute for live matches
+      interval = setInterval(fetchPlayerData, 60 * 1000);
+    } else {
+      // Update every 6 hours for non-live matches
+      interval = setInterval(fetchPlayerData, 6 * 60 * 60 * 1000);
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [teamId, playerId, playerData?.hasLiveMatch]);
 
   const handleBackToTeam = () => {
     navigate(`/team/${teamId}`);
@@ -115,7 +182,9 @@ const PlayerPage = () => {
                 {playerData.statistics?.[0]?.games?.position ||
                   playerData.player?.position}
               </p>
-              <p className="text-gray-500">Age: {playerData.player?.age}</p>
+              <p className="text-gray-500">
+                Age: {calculateAge(playerData.player?.birth?.date)}
+              </p>
               <p className="text-gray-500">
                 Nationality: {playerData.player?.nationality}
               </p>
@@ -127,7 +196,7 @@ const PlayerPage = () => {
         {playerData.statistics && playerData.statistics.length > 0 && (
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Season Statistics</h2>
+              <h2 className="text-xl font-bold">Current Season Statistics</h2>
               <button
                 onClick={() => setShowDetailedStats(!showDetailedStats)}
                 className="text-blue-600 hover:text-blue-800"
@@ -136,74 +205,83 @@ const PlayerPage = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard
-                title="Appearances"
-                value={playerData.statistics[0].games?.appearences || 0}
-              />
-              <StatCard
-                title="Goals"
-                value={playerData.statistics[0].goals?.total || 0}
-              />
-              <StatCard
-                title="Assists"
-                value={playerData.statistics[0].goals?.assists || 0}
-              />
-              <StatCard
-                title="Rating"
-                value={
-                  playerData.statistics[0].games?.rating?.slice(0, 4) || "-"
-                }
-              />
-            </div>
+            {/* Group current season stats by competition */}
+            {playerData.statistics.map((stat, index) => (
+              <div key={index} className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <img
+                    src={stat.league?.logo}
+                    alt={stat.league?.name}
+                    className="w-6 h-6"
+                  />
+                  <span className="font-medium">{stat.league?.name}</span>
+                </div>
 
-            {showDetailedStats && (
-              <div className="mt-6 space-y-4">
-                <CompetitionStats
-                  competitions={playerData?.statistics?.[0]?.competitions || []}
-                />
-                <StatBlock
-                  title="Games"
-                  stats={playerData.statistics[0].games}
-                />
-                <StatBlock
-                  title="Goals & Assists"
-                  stats={playerData.statistics[0].goals}
-                />
-                <StatBlock
-                  title="Shots"
-                  stats={playerData.statistics[0].shots}
-                />
-                <StatBlock
-                  title="Passes"
-                  stats={playerData.statistics[0].passes}
-                />
-                <StatBlock
-                  title="Tackles"
-                  stats={playerData.statistics[0].tackles}
-                />
-                <StatBlock
-                  title="Duels"
-                  stats={playerData.statistics[0].duels}
-                />
-                <StatBlock
-                  title="Dribbles"
-                  stats={playerData.statistics[0].dribbles}
-                />
-                <StatBlock
-                  title="Fouls"
-                  stats={playerData.statistics[0].fouls}
-                />
-                <StatBlock
-                  title="Cards"
-                  stats={playerData.statistics[0].cards}
-                />
-                <StatBlock
-                  title="Penalties"
-                  stats={playerData.statistics[0].penalty}
-                />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <StatCard
+                    title="Appearances"
+                    value={stat.games?.appearences || 0}
+                  />
+                  <StatCard
+                    title={
+                      stat.games?.position === "Goalkeeper" ? "Saves" : "Goals"
+                    }
+                    value={
+                      stat.games?.position === "Goalkeeper"
+                        ? stat.goals?.saves || 0
+                        : stat.goals?.total || 0
+                    }
+                  />
+                  <StatCard
+                    title={
+                      stat.games?.position === "Goalkeeper"
+                        ? "Goals Conceded"
+                        : "Assists"
+                    }
+                    value={
+                      stat.games?.position === "Goalkeeper"
+                        ? stat.goals?.conceded || 0
+                        : stat.goals?.assists || 0
+                    }
+                  />
+                  <StatCard
+                    title="Rating"
+                    value={stat.games?.rating?.slice(0, 4) || "-"}
+                  />
+                </div>
+
+                {showDetailedStats && (
+                  <div className="mt-4">
+                    <StatBlock title="Games" stats={stat.games || {}} />
+                    {stat.games?.position === "Goalkeeper" ? (
+                      <StatBlock
+                        title="Goalkeeper Stats"
+                        stats={{
+                          saves: stat.goals?.saves,
+                          conceded: stat.goals?.conceded,
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <StatBlock
+                          title="Goals & Assists"
+                          stats={stat.goals || {}}
+                        />
+                        <StatBlock title="Shots" stats={stat.shots || {}} />
+                        <StatBlock title="Passes" stats={stat.passes || {}} />
+                        <StatBlock title="Tackles" stats={stat.tackles || {}} />
+                        <StatBlock title="Duels" stats={stat.duels || {}} />
+                        <StatBlock
+                          title="Dribbles"
+                          stats={stat.dribbles || {}}
+                        />
+                      </>
+                    )}
+                    <StatBlock title="Cards" stats={stat.cards || {}} />
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
         )}
 
@@ -220,19 +298,28 @@ const StatCard = ({ title, value }) => (
   </div>
 );
 
-const StatBlock = ({ title, stats }) => (
-  <div className="p-4 bg-gray-50 rounded-lg">
-    <h4 className="font-semibold mb-2">{title}</h4>
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-      {Object.entries(stats).map(([key, value]) => (
-        <div key={key}>
-          <span className="text-gray-600">{key.replace(/_/g, " ")}: </span>
-          <span className="font-medium">{value || 0}</span>
-        </div>
-      ))}
+const StatBlock = ({ title, stats }) => {
+  // Filter out null/undefined values
+  const filteredStats = Object.entries(stats || {}).filter(
+    ([_, value]) => value !== null && value !== undefined
+  );
+
+  if (filteredStats.length === 0) return null;
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-lg">
+      <h4 className="font-semibold mb-2">{title}</h4>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        {filteredStats.map(([key, value]) => (
+          <div key={key}>
+            <span className="text-gray-600">{key.replace(/_/g, " ")}: </span>
+            <span className="font-medium">{value || 0}</span>
+          </div>
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const CompetitionStats = ({ competitions }) => {
   if (!competitions || competitions.length === 0) {

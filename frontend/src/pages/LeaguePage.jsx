@@ -20,7 +20,19 @@ const LeaguePage = () => {
         setLoading(true);
         setError(null);
 
-        // Try to get league data from sessionStorage first
+        // First try to get league data from location state
+        if (location.state?.leagueInfo) {
+          setLeagueData(location.state.leagueInfo);
+          // Also store in sessionStorage for future use
+          sessionStorage.setItem(
+            `league_${id}`,
+            JSON.stringify(location.state.leagueInfo)
+          );
+          setLoading(false);
+          return;
+        }
+
+        // Then try sessionStorage
         const storedLeagueData = sessionStorage.getItem(`league_${id}`);
         if (storedLeagueData) {
           setLeagueData(JSON.parse(storedLeagueData));
@@ -28,11 +40,12 @@ const LeaguePage = () => {
           return;
         }
 
-        // If not in sessionStorage, fetch from API
+        // If not found in either place, fetch from API
         const response = await axios.get(`${API_BASE_URL}/api/leagues/${id}`);
         if (response.data) {
-          setLeagueData(response.data);
-          sessionStorage.setItem(`league_${id}`, JSON.stringify(response.data));
+          const newLeagueData = response.data;
+          setLeagueData(newLeagueData);
+          sessionStorage.setItem(`league_${id}`, JSON.stringify(newLeagueData));
         }
       } catch (error) {
         console.error("Error fetching league data:", error);
@@ -43,7 +56,7 @@ const LeaguePage = () => {
     };
 
     fetchLeagueData();
-  }, [id]);
+  }, [id, location.state]);
 
   if (loading) {
     return (
