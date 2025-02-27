@@ -1,9 +1,9 @@
 from celery import shared_task
-from app.database import SessionLocal
+from app.database import SessionLocal, get_db
 from app.api_service.football_api import FootballAPIService
 from datetime import datetime, timedelta
 import logging
-from app.sql_models.models import Match, Team, MatchEvent, Player
+from app.sql_models.models import Match, Team, MatchEvent, Player, MatchStatus
 from app.services.data_sync import DataSyncService
 from sqlalchemy.orm import Session
 
@@ -141,50 +141,57 @@ def sync_completed_matches():
 
 @shared_task
 def sync_live_matches():
-    """Update live match data every minute"""
-    db = SessionLocal()
+    """Sync live matches to database"""
     try:
+        # Get database session
+        db = next(get_db())
+        
+        # Get live matches from API
         football_api = FootballAPIService()
+        response = football_api.get_matches(date=datetime.now().strftime("%Y-%m-%d"))
         
-        # Get live matches
-        live_matches = football_api.get_matches(live=True)
-        
-        for match_data in live_matches.get('response', []):
-            fixture = match_data['fixture']
+        if response and 'response' in response:
+            live_matches = [
+                match for match in response['response']
+                if match['fixture']['status']['short'] in ['1H', '2H', 'HT']
+            ]
             
-            # Update match
-            match = db.query(Match).filter(Match.id == fixture['id']).first()
-            if match:
-                match.status = fixture['status']['short']
-                match.home_score = fixture['goals']['home']
-                match.away_score = fixture['goals']['away']
-                match.last_updated = datetime.utcnow()
+            # Store matches in database
+            for match_data in live_matches:
+                # Get or create match status
+                status_code = match_data['fixture']['status']['short']
+                match_status = db.query(MatchStatus).filter_by(status=status_code).first()
+                if not match_status:
+                    match_status = MatchStatus(status=status_code)
+                    db.add(match_status)
+                    db.flush()  # Get the ID without committing
                 
-                # Get and store latest events
-                events = football_api.get_match_events(match.id)
-                if events:
-                    for event_data in events.get('response', []):
-                        existing_event = db.query(MatchEvent).filter(
-                            MatchEvent.match_id == match.id,
-                            MatchEvent.event_time == event_data['time']['elapsed'],
-                            MatchEvent.player_id == event_data['player']['id']
-                        ).first()
-                        
-                        if not existing_event:
-                            event = MatchEvent(
-                                match_id=match.id,
-                                event_time=event_data['time']['elapsed'],
-                                event_type=event_data['type'],
-                                player_id=event_data['player']['id'],
-                                team_id=event_data['team']['id'],
-                                details=event_data['detail']
-                            )
-                            db.add(event)
+                match = Match(
+                    id=match_data['fixture']['id'],
+                    home_team_id=match_data['teams']['home']['id'],
+                    away_team_id=match_data['teams']['away']['id'],
+                    date=datetime.fromtimestamp(match_data['fixture']['timestamp']),
+                    match_status_id=match_status.id,
+                    score_home=match_data['goals']['home'],
+                    score_away=match_data['goals']['away'],
+                    stadium=match_data['fixture'].get('venue', {}).get('name'),
+                    referee=match_data['fixture'].get('referee')
+                )
                 
-        db.commit()
-        logger.info("Live matches updated successfully")
+                # Update or insert match
+                existing_match = db.query(Match).filter_by(id=match.id).first()
+                if existing_match:
+                    for key, value in match.__dict__.items():
+                        if key != '_sa_instance_state':
+                            setattr(existing_match, key, value)
+                else:
+                    db.add(match)
+                
+            db.commit()
+            logger.info(f"Synced {len(live_matches)} live matches to database")
+        
     except Exception as e:
-        logger.error(f"Error updating live matches: {str(e)}")
+        logger.error(f"Error in sync_live_matches: {str(e)}")
         db.rollback()
     finally:
         db.close()

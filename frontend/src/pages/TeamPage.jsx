@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useLocation, Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { PlayerPlaceholder } from "../assets/placeholder";
+import TeamStatistics from "../components/Team/TeamStatistics";
 
 const TeamPage = () => {
   const { id } = useParams();
@@ -13,10 +14,128 @@ const TeamPage = () => {
   const [teamStats, setTeamStats] = useState(null);
   const [players, setPlayers] = useState([]);
 
+  // Get league info from location state
+  const leagueInfo =
+    location.state?.leagueInfo || teamStats?.by_league?.[0]?.league;
+
   console.log("Location state:", location.state);
+  console.log("League info:", leagueInfo);
   console.log("Team stats:", teamStats);
 
-  const initialTeamData = location.state?.teamData;
+  // Function to find the domestic league
+  const findDomesticLeague = (teamStats) => {
+    const teamCountry = teamStats?.overall?.team?.country?.toLowerCase();
+    const MAJOR_LEAGUES = {
+      england: "Premier League",
+      spain: "La Liga",
+      italy: "Serie A",
+      germany: "Bundesliga",
+      france: "Ligue 1",
+    };
+
+    // First try to find the league in the available leagues
+    const domesticLeagues = teamStats?.by_league?.filter((stat) => {
+      const leagueName = stat.league?.name?.toLowerCase() || "";
+      const leagueCountry = stat.league?.country?.toLowerCase() || "";
+
+      // Basic checks for any domestic league - removed leagueType check
+      const isDomestic =
+        leagueCountry === teamCountry &&
+        !leagueName.includes("cup") &&
+        !leagueName.includes("champions") &&
+        !leagueName.includes("europa") &&
+        !leagueName.includes("friendly") &&
+        !leagueName.includes("super");
+
+      console.log(`Checking league: ${stat.league?.name}`, {
+        leagueName,
+        leagueCountry,
+        teamCountry,
+        isDomestic,
+        fullLeague: stat.league, // Log full league object for debugging
+      });
+
+      return isDomestic;
+    });
+
+    if (domesticLeagues.length === 0) {
+      console.log(
+        "Available leagues:",
+        teamStats?.by_league?.map((stat) => ({
+          name: stat.league?.name,
+          country: stat.league?.country,
+        }))
+      );
+      console.log("No domestic leagues found for country:", teamCountry);
+      return null;
+    }
+
+    // If it's a major league country, try to find the specific league first
+    if (MAJOR_LEAGUES[teamCountry]) {
+      const expectedLeagueName = MAJOR_LEAGUES[teamCountry].toLowerCase();
+      const majorLeague = domesticLeagues.find((stat) =>
+        stat.league?.name?.toLowerCase().includes(expectedLeagueName)
+      );
+      if (majorLeague) {
+        console.log("Found major league:", majorLeague.league);
+        return majorLeague.league;
+      }
+    }
+
+    // Sort leagues by priority
+    const sortedLeagues = domesticLeagues.sort((a, b) => {
+      const nameA = a.league?.name?.toLowerCase() || "";
+      const nameB = b.league?.name?.toLowerCase() || "";
+
+      // Check for division numbers
+      const divA = nameA.match(/\d+/) ? parseInt(nameA.match(/\d+/)[0]) : 0;
+      const divB = nameB.match(/\d+/) ? parseInt(nameB.match(/\d+/)[0]) : 0;
+
+      if (divA === divB) {
+        return nameA.length - nameB.length;
+      }
+      return divA - divB;
+    });
+
+    console.log(
+      "Sorted leagues:",
+      sortedLeagues.map((l) => l.league?.name)
+    );
+    return sortedLeagues[0]?.league;
+  };
+
+  const handleBackToLeague = () => {
+    const domesticLeague = findDomesticLeague(teamStats);
+    console.log("Found domestic league:", domesticLeague);
+
+    if (domesticLeague?.id) {
+      try {
+        const leagueData = {
+          id: domesticLeague.id,
+          name: domesticLeague.name,
+          country: domesticLeague.country,
+          logo: domesticLeague.logo,
+          type: domesticLeague.type,
+          season: domesticLeague.season,
+        };
+
+        console.log("Attempting navigation to league:", leagueData);
+
+        // Store in session storage before navigation
+        sessionStorage.setItem(
+          `league_${domesticLeague.id}`,
+          JSON.stringify(leagueData)
+        );
+
+        // Force navigation to league page
+        window.location.href = `/league/${domesticLeague.id}`;
+      } catch (error) {
+        console.error("Navigation error:", error);
+      }
+    } else {
+      console.error("No domestic league found for this team");
+    }
+  };
 
   useEffect(() => {
     const fetchTeamData = async () => {
@@ -25,48 +144,35 @@ const TeamPage = () => {
         setError(null);
 
         // Fetch team data if not provided
-        if (!initialTeamData) {
+        if (!location.state?.teamData) {
           const teamResponse = await axios.get(
             `http://localhost:8000/api/teams/${id}`
           );
           setTeamData(teamResponse.data.data[0]);
         } else {
-          setTeamData(initialTeamData);
+          setTeamData(location.state.teamData);
         }
 
-        // Get league ID from team data or initial data
-        const leagueId =
-          teamData?.team?.league?.id || initialTeamData?.league?.id;
-
-        // Fetch team statistics with league info
+        // Fetch team statistics
         const statsResponse = await axios.get(
-          `http://localhost:8000/api/teams/${id}/statistics`,
-          {
-            params: {
-              league: leagueId,
-            },
-          }
+          `http://localhost:8000/api/teams/${id}/statistics`
         );
+        console.log("Raw team statistics response:", statsResponse.data);
+        console.log("Team stats:", statsResponse.data?.data?.overall?.team);
+        console.log("League data:", statsResponse.data?.data?.overall?.league);
         console.log(
-          "Raw team statistics response:",
-          JSON.stringify(statsResponse.data, null, 2)
+          "Coach data:",
+          statsResponse.data?.data?.overall?.team?.coach
         );
+
+        if (statsResponse.data?.data) {
+          setTeamStats(statsResponse.data.data);
+        }
 
         // Fetch team players
         const playersResponse = await axios.get(
           `http://localhost:8000/api/teams/${id}/players`
         );
-
-        if (statsResponse.data?.data) {
-          setTeamStats(statsResponse.data.data);
-          // Store league data in sessionStorage
-          if (statsResponse.data.data.league) {
-            sessionStorage.setItem(
-              `league_${statsResponse.data.data.league.id}`,
-              JSON.stringify(statsResponse.data.data.league)
-            );
-          }
-        }
 
         if (Array.isArray(playersResponse.data?.data?.players)) {
           setPlayers(playersResponse.data.data.players);
@@ -82,28 +188,13 @@ const TeamPage = () => {
     };
 
     fetchTeamData();
-  }, [id, initialTeamData, teamData?.team?.league?.id]);
+  }, [id]);
 
-  const fetchTeamStats = async () => {
-    try {
-      const statsResponse = await axios.get(
-        `http://localhost:8000/team/stats/${teamId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      console.log("Fetched Team Stats Response:", statsResponse.data);
-
-      if (statsResponse.data?.data) {
-        setTeamStats(statsResponse.data.data);
-      } else {
-        console.warn("No data returned for team statistics.");
-      }
-    } catch (error) {
-      console.error("Error fetching team stats:", error);
-    }
-  };
+  // Add this debug log to see what data we have
+  useEffect(() => {
+    console.log("Current teamStats:", teamStats);
+    console.log("Location state:", location.state);
+  }, [teamStats, location.state]);
 
   const handlePlayerClick = (player) => {
     navigate(`/team/${id}/player/${player.id}`, {
@@ -133,113 +224,74 @@ const TeamPage = () => {
   }
 
   // Extract statistics
-  const matchesPlayed = teamStats?.fixtures?.played?.total || 0;
-  const wins = teamStats?.fixtures?.wins?.total || 0;
-  const draws = teamStats?.fixtures?.draws?.total || 0;
-  const losses = teamStats?.fixtures?.loses?.total || 0;
+  const matchesPlayed = teamStats?.overall?.fixtures?.played?.total || 0;
+  const wins = teamStats?.overall?.fixtures?.wins?.total || 0;
+  const draws = teamStats?.overall?.fixtures?.draws?.total || 0;
+  const losses = teamStats?.overall?.fixtures?.loses?.total || 0;
   const winRate =
     matchesPlayed > 0 ? ((wins / matchesPlayed) * 100).toFixed(1) : 0;
-  const goalsFor = teamStats?.goals?.for?.total?.total || 0;
-  const goalsAgainst = teamStats?.goals?.against?.total?.total || 0;
-  const cleanSheets = teamStats?.clean_sheet?.total || 0;
+  const goalsFor = teamStats?.overall?.goals?.for?.total?.total || 0;
+  const goalsAgainst = teamStats?.overall?.goals?.against?.total?.total || 0;
+  const cleanSheets = teamStats?.overall?.clean_sheet?.total || 0;
   const form = teamStats?.form || "";
 
   // Add this console.log to check the league data structure
   console.log("League data:", teamStats?.league);
 
-  const handleBackToLeague = () => {
-    if (teamStats?.league) {
-      const leagueId = teamStats.league.id;
-      // Store current league data in sessionStorage before navigating
-      sessionStorage.setItem(
-        `league_${leagueId}`,
-        JSON.stringify(teamStats.league)
-      );
-      navigate(`/league/${leagueId}`);
-    }
-  };
+  const leagueName =
+    teamData?.team?.league?.name || location.state?.leagueName || "League";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {teamStats?.league && (
-          <button
-            onClick={handleBackToLeague}
-            className="inline-flex items-center mb-4 text-blue-600 hover:text-blue-800 transition-colors"
-          >
-            <span className="mr-2 text-xl">←</span>
-            View {teamStats.league.name}
-          </button>
-        )}
+    <div className="min-h-screen bg-gray-50 p-4">
+      <div className="max-w-7xl mx-auto">
+        {teamStats &&
+          (() => {
+            const domesticLeague = findDomesticLeague(teamStats);
+            console.log("Domestic league for button:", domesticLeague);
 
+            return domesticLeague?.id ? (
+              <button
+                onClick={() => handleBackToLeague()}
+                className="mb-4 flex items-center text-blue-600 hover:text-blue-800 cursor-pointer"
+              >
+                <svg
+                  className="w-5 h-5 mr-2"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+                Back to {domesticLeague.name}
+              </button>
+            ) : null;
+          })()}
+
+        {/* Team Header */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex items-center space-x-4">
-            {teamData?.team?.logo && (
+          <div className="flex items-center gap-6">
+            {teamStats?.overall?.team?.logo && (
               <img
-                src={teamData.team.logo}
-                alt={teamData.team.name}
+                src={teamStats.overall.team.logo}
+                alt={teamStats.overall.team.name}
                 className="w-24 h-24 object-contain"
               />
             )}
             <div>
-              <h1 className="text-3xl font-bold">{teamData?.team?.name}</h1>
-              <p className="text-gray-600">{teamData?.venue?.name}</p>
-              {teamStats?.league && (
-                <p className="text-sm text-gray-500 mt-1">
-                  {teamStats.team.name} • {teamStats.league.country}
-                </p>
-              )}
+              <h1 className="text-3xl font-bold">
+                {teamStats?.overall?.team?.name}
+              </h1>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Team Statistics</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Matches</p>
-              <p className="text-2xl font-bold">{matchesPlayed}</p>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Win Rate</p>
-              <p className="text-2xl font-bold">{winRate}%</p>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Goals</p>
-              <p className="text-2xl font-bold">{goalsFor}</p>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Clean Sheets</p>
-              <p className="text-2xl font-bold">{cleanSheets}</p>
-            </div>
-          </div>
-
-          {/* Form Guide - Modified to show only last 10 matches */}
-          {form && (
-            <div className="mt-6">
-              <h3 className="text-lg font-semibold mb-2">Last 10 Games</h3>
-              <div className="flex gap-1">
-                {form
-                  .slice(-10)
-                  .split("")
-                  .map((result, index) => (
-                    <div
-                      key={index}
-                      className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold ${
-                        result === "W"
-                          ? "bg-green-500 text-white"
-                          : result === "D"
-                          ? "bg-yellow-500 text-white"
-                          : "bg-red-500 text-white"
-                      }`}
-                    >
-                      {result}
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Team Statistics Component */}
+        <TeamStatistics statistics={teamStats} />
 
         <div className="bg-white rounded-lg shadow p-6 mt-6">
           <h2 className="text-xl font-bold mb-4">Squad</h2>

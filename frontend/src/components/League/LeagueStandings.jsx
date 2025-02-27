@@ -8,6 +8,7 @@ const LeagueStandings = ({ leagueId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [season, setSeason] = useState(null);
+  const [leagueData, setLeagueData] = useState(null);
 
   useEffect(() => {
     const fetchCurrentSeason = async () => {
@@ -47,6 +48,7 @@ const LeagueStandings = ({ leagueId }) => {
 
         if (response.data?.data) {
           setStandings(response.data.data);
+          setLeagueData(response.data.data[0].league);
         } else {
           setError("No standings data available");
         }
@@ -63,12 +65,15 @@ const LeagueStandings = ({ leagueId }) => {
     }
   }, [leagueId]);
 
-  const handleTeamClick = (teamId, teamData) => {
-    navigate(`/team/${teamId}`, {
+  const handleTeamClick = (team) => {
+    navigate(`/team/${team.team.id}`, {
       state: {
-        teamData: {
-          ...teamData,
-          season: season,
+        teamData: team,
+        leagueInfo: {
+          id: leagueId,
+          name: leagueData?.name || "League",
+          logo: leagueData?.logo,
+          country: leagueData?.country,
         },
       },
     });
@@ -142,7 +147,7 @@ const LeagueStandings = ({ leagueId }) => {
             {standings.map((team) => (
               <tr
                 key={team.team.id}
-                onClick={() => handleTeamClick(team.team.id, team.team)}
+                onClick={() => handleTeamClick(team)}
                 className="hover:bg-gray-50 cursor-pointer"
               >
                 <td className="px-6 py-4 whitespace-nowrap">{team.rank}</td>

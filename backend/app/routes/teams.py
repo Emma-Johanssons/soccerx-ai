@@ -460,80 +460,151 @@ async def get_player_history(team_id: int, player_id: int):
 
 @router.get("/{team_id}/statistics")
 async def get_team_statistics(team_id: int):
-    """Get team statistics for the current season"""
     try:
         logger.info(f"Fetching team statistics for team {team_id}")
         current_season = datetime.now().year
-        if datetime.now().month < 8:  # If before August, use previous year
+        if datetime.now().month < 8:
             current_season -= 1
-            
+
         # Get team info first
         team_info = football_api.get_team_info(team_id)
-        league_id = None
+        if not team_info or 'response' not in team_info or not team_info['response']:
+            raise HTTPException(status_code=404, detail="Team not found")
+            
+        team_data = team_info['response'][0]
+        team_country = team_data['team']['country']
         
-        if team_info and 'response' in team_info:
-            # Try to get the primary league ID from team info
-            team_data = team_info['response'][0]
-            if 'team' in team_data and 'league' in team_data:
-                league_id = team_data['league'].get('id')
-        
-        # If no league found from team info, try to find it from team matches
-        if not league_id:
-            matches = football_api.get_team_matches(team_id, last=1)
-            if matches and 'response' in matches and matches['response']:
-                league_id = matches['response'][0]['league']['id']
-        
-        # Get statistics for the identified league
-        if league_id:
-            response = football_api.get_team_statistics(team_id, league_id, current_season)
-            if response and 'response' in response:
-                return {
-                    "status": "success",
-                    "data": response['response']
+        # Get coach info - get the current coach
+        coach_response = football_api.get_team_coach(team_id)
+        coach_info = None
+        if coach_response and 'response' in coach_response and coach_response['response']:
+            current_time = datetime.now()
+            latest_coach = None
+            latest_start_date = None
+
+            for coach in coach_response['response']:
+                if 'career' in coach:
+                    for stint in coach['career']:
+                        if stint['team']['id'] == team_id:
+                            start_date = datetime.strptime(stint['start'], '%Y-%m-%d')
+                            # Check if this is a more recent appointment
+                            if (latest_start_date is None or start_date > latest_start_date):
+                                # For current coaches, 'end' should be None
+                                if stint['end'] is None:
+                                    latest_start_date = start_date
+                                    latest_coach = coach
+
+            if latest_coach:
+                coach_info = {
+                    'name': latest_coach['name'],
+                    'age': latest_coach['age'],
+                    'nationality': latest_coach['nationality'],
+                    'photo': latest_coach['photo']
                 }
+                logger.info(f"Found current coach: {latest_coach['name']} (started: {latest_start_date})")
+
+        # Get team's matches to identify all competitions
+        matches = football_api.get_team_matches(team_id, current_season)
+        leagues = {}
+        domestic_league = None
         
-        # Return default response if no statistics found
+        if matches and 'response' in matches:
+            # Collect all unique leagues the team plays in
+            for match in matches['response']:
+                league = match['league']
+                league_id = league['id']
+                
+                if league_id not in leagues:
+                    leagues[league_id] = league
+                    # Identify domestic league based on country match and type
+                    if (league['country'] == team_country and 
+                        league.get('type', '').lower() in ['league', 'first division']):
+                        domestic_league = league
+
+        # Initialize overall stats
+        overall_stats = {
+            "team": {
+                "id": team_data['team']['id'],
+                "name": team_data['team']['name'],
+                "country": team_data['team']['country'],
+                "founded": team_data['team']['founded'],
+                "logo": team_data['team']['logo'],
+                "coach": coach_info,
+                "venue": team_data['venue']
+            },
+            "fixtures": {
+                "played": {"total": 0},
+                "wins": {"total": 0},
+                "draws": {"total": 0},
+                "loses": {"total": 0}
+            },
+            "goals": {
+                "for": {"total": {"total": 0}},
+                "against": {"total": {"total": 0}}
+            },
+            "clean_sheet": {"total": 0},
+            "league": domestic_league or next(iter(leagues.values())) if leagues else None  # Fallback to first league if no domestic league found
+        }
+
+        # Get statistics for each league
+        all_stats = []
+        for league_id, league_info in leagues.items():
+            league_stats = football_api.get_team_statistics(team_id, league_id, current_season)
+            if league_stats and 'response' in league_stats:
+                stats = league_stats['response']
+                stats['league'] = league_info  # Add league information to stats
+                all_stats.append(stats)
+                
+                # Sum up statistics for overall view
+                overall_stats['fixtures']['played']['total'] += stats.get('fixtures', {}).get('played', {}).get('total', 0) or 0
+                overall_stats['fixtures']['wins']['total'] += stats.get('fixtures', {}).get('wins', {}).get('total', 0) or 0
+                overall_stats['fixtures']['draws']['total'] += stats.get('fixtures', {}).get('draws', {}).get('total', 0) or 0
+                overall_stats['fixtures']['loses']['total'] += stats.get('fixtures', {}).get('loses', {}).get('total', 0) or 0
+                overall_stats['goals']['for']['total']['total'] += stats.get('goals', {}).get('for', {}).get('total', {}).get('total', 0) or 0
+                overall_stats['goals']['against']['total']['total'] += stats.get('goals', {}).get('against', {}).get('total', {}).get('total', 0) or 0
+                overall_stats['clean_sheet']['total'] += stats.get('clean_sheet', {}).get('total', 0) or 0
+            
+        logger.info(f"Found statistics for {len(all_stats)} leagues")
+        
+        # Get form from matches
+        form = []
+        if matches and 'response' in matches:
+            sorted_matches = sorted(
+                [m for m in matches['response'] if m['fixture']['status']['short'] == 'FT'],
+                key=lambda x: x['fixture']['date'],
+                reverse=True
+            )[:5]
+            
+            for match in sorted_matches:
+                if match['teams']['home']['id'] == team_id:
+                    if match['goals']['home'] > match['goals']['away']:
+                        form.append('W')
+                    elif match['goals']['home'] < match['goals']['away']:
+                        form.append('L')
+                    else:
+                        form.append('D')
+                else:
+                    if match['goals']['away'] > match['goals']['home']:
+                        form.append('W')
+                    elif match['goals']['away'] < match['goals']['home']:
+                        form.append('L')
+                    else:
+                        form.append('D')
+        
+        logger.info(f"Team form: {form}")
+        
         return {
             "status": "success",
             "data": {
-                "league": None,
-                "team": {"id": team_id},
-                "fixtures": {
-                    "played": {"total": 0},
-                    "wins": {"total": 0},
-                    "draws": {"total": 0},
-                    "loses": {"total": 0}
-                },
-                "goals": {
-                    "for": {"total": {"total": 0}},
-                    "against": {"total": {"total": 0}}
-                },
-                "clean_sheet": {"total": 0},
-                "form": ""
+                "overall": overall_stats,
+                "by_league": all_stats,
+                "form": form
             }
         }
-            
+        
     except Exception as e:
         logger.error(f"Error in get_team_statistics: {str(e)}")
-        return {
-            "status": "success",
-            "data": {
-                "league": None,
-                "team": {"id": team_id},
-                "fixtures": {
-                    "played": {"total": 0},
-                    "wins": {"total": 0},
-                    "draws": {"total": 0},
-                    "loses": {"total": 0}
-                },
-                "goals": {
-                    "for": {"total": {"total": 0}},
-                    "against": {"total": {"total": 0}}
-                },
-                "clean_sheet": {"total": 0},
-                "form": ""
-            }
-        }
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/live/matches")
 @cache(expire=300)  # Cache for 5 minutes
