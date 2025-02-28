@@ -50,10 +50,24 @@ const PlayerPage = () => {
 
         const [currentResponse, historyResponse] = await Promise.all([
           axios.get(
-            `http://localhost:8000/api/teams/${teamId}/players/${playerId}`
+            `http://localhost:8000/api/teams/${teamId}/players/${playerId}`,
+            {
+              headers: {
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+            }
           ),
           axios.get(
-            `http://localhost:8000/api/teams/${teamId}/players/${playerId}/history`
+            `http://localhost:8000/api/teams/${teamId}/players/${playerId}/history`,
+            {
+              headers: {
+                "Cache-Control": "no-cache",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
+            }
           ),
         ]);
 
@@ -108,20 +122,11 @@ const PlayerPage = () => {
     // Initial fetch
     fetchPlayerData();
 
-    // Set up interval based on whether there's a live match
-    let interval;
-    if (playerData?.hasLiveMatch) {
-      // Update every minute for live matches
-      interval = setInterval(fetchPlayerData, 60 * 1000);
-    } else {
-      // Update every 6 hours for non-live matches
-      interval = setInterval(fetchPlayerData, 6 * 60 * 60 * 1000);
-    }
+    // Set up polling interval (every minute)
+    const interval = setInterval(fetchPlayerData, 60000);
 
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [teamId, playerId, playerData?.hasLiveMatch]);
+    return () => clearInterval(interval);
+  }, [teamId, playerId]);
 
   const handleBackToTeam = () => {
     navigate(`/team/${teamId}`);
