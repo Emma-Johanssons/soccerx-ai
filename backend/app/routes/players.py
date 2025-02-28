@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, Response
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..api_service.football_api import FootballAPIService
@@ -52,12 +52,17 @@ def get_players(db: Session = Depends(get_db)):
 
 @router.get("/{team_id}/players/{player_id}")
 async def get_player_details(
+    response: Response,
     team_id: int = Path(..., description="The team ID"),
-    player_id: int = Path(..., description="The player ID")
+    player_id: int = Path(..., description="The player ID"),
 ):
     try:
+        # Set no-cache headers
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+
         logger.info(f"Fetching detailed stats for player {player_id}")
-        current_season = get_current_season()
         
         # Get player info
         player_info = football_api.get_player_info(player_id)
@@ -66,42 +71,18 @@ async def get_player_details(
             
         player_details = player_info['response'][0]
         
-        # Get current season stats
+        # Get current stats including live fixture data
         stats_response = football_api.get_player_statistics(
             player_id=player_id,
-            season=current_season
-        )
-
-        # Get recent fixture stats (last 7 days)
-        fixture_stats = football_api.get_player_fixture_statistics(
-            player_id=player_id,
-            team_id=team_id,
-            days=7  # Get fixtures from last 7 days
+            team_id=team_id
         )
 
         if stats_response and stats_response.get('response'):
-            current_season_stats = stats_response['response']
-            
-            # Update stats with recent fixture data
-            if fixture_stats and fixture_stats.get('response'):
-                for stat in current_season_stats:
-                    for fixture_stat in fixture_stats['response']:
-                        if (fixture_stat['league']['id'] == stat['league']['id'] and 
-                            fixture_stat['team']['id'] == stat['team']['id']):
-                            # Update the statistics with fixture data
-                            stat['games']['appearences'] = (stat['games'].get('appearences', 0) or 0) + 1
-                            stat['goals']['total'] = (stat['goals'].get('total', 0) or 0) + (fixture_stat['goals'].get('total', 0) or 0)
-                            stat['goals']['assists'] = (stat['goals'].get('assists', 0) or 0) + (fixture_stat['goals'].get('assists', 0) or 0)
-                            if 'saves' in fixture_stat.get('goals', {}):
-                                stat['goals']['saves'] = (stat['goals'].get('saves', 0) or 0) + (fixture_stat['goals'].get('saves', 0) or 0)
-                            if 'conceded' in fixture_stat.get('goals', {}):
-                                stat['goals']['conceded'] = (stat['goals'].get('conceded', 0) or 0) + (fixture_stat['goals'].get('conceded', 0) or 0)
-
             return {
                 "status": "success",
                 "data": {
                     "player": player_details,
-                    "statistics": current_season_stats
+                    "statistics": stats_response['response']
                 }
             }
 

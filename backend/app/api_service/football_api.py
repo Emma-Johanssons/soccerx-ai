@@ -413,107 +413,81 @@ class FootballAPIService:
             logger.error(f"Error fetching team statistics: {str(e)}")
             return None
 
-    def get_player_statistics(self, player_id: int, team_id: int = None, season: int = None):
-        """Get player statistics including recent fixtures"""
+    def get_player_fixture_statistics(self, fixture_id: int, team_id: int = None):
+        """Get player statistics from a specific fixture"""
         try:
-            logger.info(f"Fetching player statistics for player {player_id}, season {season}")
+            url = f"{self.base_url}/fixtures/statistics"
             
-            # Get season statistics
-            season_stats = self._get_season_statistics(player_id, team_id, season)
-            if not season_stats or 'response' not in season_stats:
-                return None
-
-            # Get last fixture ID for this player
-            fixtures_url = f"{self.base_url}/fixtures"
-            fixtures_params = {
-                "player": player_id,
-                "last": "1"  # Get the most recent fixture
-            }
-            if team_id:
-                fixtures_params["team"] = team_id
-
-            fixtures_response = requests.get(
-                fixtures_url, 
-                headers=self.headers, 
-                params=fixtures_params, 
-                timeout=30
-            )
-            fixtures_data = fixtures_response.json()
-
-            # If we have a recent fixture, get its statistics
-            if fixtures_data and 'response' in fixtures_data and fixtures_data['response']:
-                last_fixture = fixtures_data['response'][0]
-                fixture_id = last_fixture['fixture']['id']
-
-                # Get fixture statistics
-                fixture_stats_url = f"{self.base_url}/fixtures/players"
-                fixture_params = {
-                    "fixture": fixture_id,
-                    "player": player_id
-                }
-                
-                fixture_stats_response = requests.get(
-                    fixture_stats_url, 
-                    headers=self.headers, 
-                    params=fixture_params, 
-                    timeout=30
-                )
-                fixture_stats = fixture_stats_response.json()
-
-                # Update season stats with fixture stats if the fixture is recent (within last 2 days)
-                if fixture_stats and 'response' in fixture_stats:
-                    fixture_date = datetime.strptime(last_fixture['fixture']['date'], "%Y-%m-%dT%H:%M:%S%z")
-                    if (datetime.now(timezone.utc) - fixture_date).days <= 2:
-                        logger.info(f"Found recent fixture stats for player {player_id}")
-                        self._update_stats_with_fixture(season_stats['response'], fixture_stats['response'])
-
-            return season_stats
-
-        except Exception as e:
-            logger.error(f"Error in get_player_statistics: {str(e)}")
-            return None
-
-    def _get_season_statistics(self, player_id: int, team_id: int = None, season: int = None):
-        """Get basic season statistics"""
-        try:
-            url = f"{self.base_url}/players"
             params = {
-                "id": player_id,
-                "season": season
+                "fixture": fixture_id
             }
             if team_id:
                 params["team"] = team_id
 
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            # Add no-cache headers
+            headers = {
+                **self.headers,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+
+            response = requests.get(url, headers=headers, params=params, timeout=30)
             return self._handle_response(response)
 
         except Exception as e:
-            logger.error(f"Error in _get_season_statistics: {str(e)}")
+            logger.error(f"Error fetching fixture statistics: {str(e)}")
             return None
 
-    def _update_stats_with_fixture(self, season_stats, fixture_stats):
-        """Update season statistics with recent fixture data"""
+    def get_player_statistics(self, player_id: int, team_id: int = None, season: int = None, fixture_id: int = None):
+        """Get player statistics including live fixture data"""
         try:
-            for fixture_stat in fixture_stats:
-                for season_stat in season_stats:
-                    if (fixture_stat['team']['id'] == season_stat['team']['id'] and
-                        fixture_stat['league']['id'] == season_stat['league']['id']):
-                        # Update basic stats
-                        season_stat['games']['appearences'] = (season_stat['games'].get('appearences', 0) or 0) + 1
-                        season_stat['games']['minutes'] = (season_stat['games'].get('minutes', 0) or 0) + (fixture_stat['games'].get('minutes', 0) or 0)
-                        
-                        # Update goals and assists
-                        season_stat['goals']['total'] = (season_stat['goals'].get('total', 0) or 0) + (fixture_stat['statistics'][0]['goals'].get('total', 0) or 0)
-                        season_stat['goals']['assists'] = (season_stat['goals'].get('assists', 0) or 0) + (fixture_stat['statistics'][0]['goals'].get('assists', 0) or 0)
-                        
-                        # Update goalkeeper stats if applicable
-                        if 'saves' in fixture_stat['statistics'][0].get('goals', {}):
-                            season_stat['goals']['saves'] = (season_stat['goals'].get('saves', 0) or 0) + (fixture_stat['statistics'][0]['goals'].get('saves', 0) or 0)
-                        if 'conceded' in fixture_stat['statistics'][0].get('goals', {}):
-                            season_stat['goals']['conceded'] = (season_stat['goals'].get('conceded', 0) or 0) + (fixture_stat['statistics'][0]['goals'].get('conceded', 0) or 0)
+            # Add no-cache headers
+            headers = {
+                **self.headers,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+
+            # Get season statistics if season is provided
+            if season:
+                url = f"{self.base_url}/players"
+                params = {
+                    "id": player_id,
+                    "season": season
+                }
+                if team_id:
+                    params["team"] = team_id
+                
+                response = requests.get(url, headers=headers, params=params)
+                return self._handle_response(response)
+
+            # Otherwise get the most recent fixture statistics
+            fixtures_url = f"{self.base_url}/fixtures"
+            fixtures_params = {
+                "player": player_id,
+                "last": "1"
+            }
+            if team_id:
+                fixtures_params["team"] = team_id
+
+            fixtures_response = requests.get(fixtures_url, headers=headers, params=fixtures_params)
+            fixtures_data = fixtures_response.json()
+
+            if fixtures_data and 'response' in fixtures_data and fixtures_data['response']:
+                last_fixture = fixtures_data['response'][0]
+                fixture_id = last_fixture['fixture']['id']
+
+                # Get live fixture statistics
+                fixture_stats = self.get_player_fixture_statistics(fixture_id, team_id)
+                return fixture_stats
+
+            return None
 
         except Exception as e:
-            logger.error(f"Error updating stats with fixture: {str(e)}")
+            logger.error(f"Error in get_player_statistics: {str(e)}")
+            return None
 
     def get_team_info(self, team_id: int):
         """Get team information"""
@@ -643,27 +617,3 @@ class FootballAPIService:
         
         logger.error(f"Failed to fetch coach data: {response.status_code}")
         return None
-
-    def get_player_fixture_statistics(self, player_id: int, team_id: int = None, days: int = 7):
-        """Get player statistics from recent fixtures"""
-        try:
-            url = f"{self.base_url}/fixtures/players"
-            
-            # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
-            
-            params = {
-                "player": player_id,
-                "from": start_date.strftime("%Y-%m-%d"),
-                "to": end_date.strftime("%Y-%m-%d")
-            }
-            if team_id:
-                params["team"] = team_id
-
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            return self._handle_response(response)
-
-        except Exception as e:
-            logger.error(f"Error fetching player fixture statistics: {str(e)}")
-            return None
