@@ -1,4 +1,7 @@
 import logging
+import importlib
+import app.tasks
+importlib.reload(app.tasks)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

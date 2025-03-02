@@ -30,7 +30,7 @@ const MatchList = ({ completed = false, showAllLeagues }) => {
         setLoading(true);
 
         const response = await axios.get(
-          `http://localhost:8000/api/matches?completed=${completed}`
+          `${process.env.REACT_APP_API_BASE_URL}/api/matches?completed=${completed}`
         );
 
         const matchesData = response.data.data || [];

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from ..api_service.football_api import FootballAPIService
-from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics, Position
+from ..sql_models.models import Team, Player, League, LastSync, Country, TeamStatistics, PlayerStatistics, Position, EventType, MatchStatus, Match
 from ..utils.position_mapper import get_position_id
 import logging
 from ..database import Base, engine
@@ -9,9 +9,9 @@ from ..database import Base, engine
 logger = logging.getLogger(__name__)
 
 class DataSyncService:
-    def __init__(self, db: Session, football_api: FootballAPIService):
+    def __init__(self, db, football_api=None):
         self.db = db
-        self.football_api = football_api
+        self.football_api = football_api or FootballAPIService()
         self.major_leagues = self.football_api.major_leagues
 
     def should_sync(self, sync_type: str) -> bool:
@@ -313,6 +313,169 @@ class DataSyncService:
             logger.error(f"Error in player sync process: {str(e)}")
             self.db.rollback()
 
+    def sync_event_types(self):
+        """Sync event types to database"""
+        logger.info("Syncing event types...")
+        if not self.should_sync('event_types'):
+            logger.info("Event types sync skipped - recent sync exists")
+            return
+            
+        try:
+            # Define standard event types
+            event_types_data = [
+                {"id": 1, "name": "Goal", "description": "Goal scored"},
+                {"id": 2, "name": "Card", "description": "Card shown"},
+                {"id": 3, "name": "Substitution", "description": "Player substitution"},
+                {"id": 4, "name": "VAR", "description": "VAR decision"},
+                {"id": 5, "name": "Penalty", "description": "Penalty awarded"},
+                {"id": 6, "name": "Missed Penalty", "description": "Penalty missed"},
+                {"id": 7, "name": "Own Goal", "description": "Own goal scored"},
+                {"id": 8, "name": "Assist", "description": "Assist for goal"}
+            ]
+            
+            for event_type in event_types_data:
+                db_event_type = self.db.query(EventType).filter(
+                    EventType.id == event_type["id"]
+                ).first()
+                
+                if not db_event_type:
+                    db_event_type = EventType(
+                        id=event_type["id"],
+                        name=event_type["name"],
+                        description=event_type["description"]
+                    )
+                    self.db.add(db_event_type)
+                else:
+                    db_event_type.name = event_type["name"]
+                    db_event_type.description = event_type["description"]
+            
+            self.db.commit()
+            logger.info("Event types synced successfully")
+            self.update_sync_time('event_types')
+        except Exception as e:
+            logger.error(f"Error syncing event types: {e}")
+            self.db.rollback()
+    
+    def sync_match_statuses(self):
+        """Sync match statuses to database"""
+        logger.info("Syncing match statuses...")
+        if not self.should_sync('match_statuses'):
+            logger.info("Match statuses sync skipped - recent sync exists")
+            return
+            
+        try:
+            # Define standard match statuses
+            match_statuses_data = [
+                {"id": 1, "name": "NS", "description": "Not Started"},
+                {"id": 2, "name": "1H", "description": "First Half"},
+                {"id": 3, "name": "HT", "description": "Half Time"},
+                {"id": 4, "name": "2H", "description": "Second Half"},
+                {"id": 5, "name": "ET", "description": "Extra Time"},
+                {"id": 6, "name": "P", "description": "Penalty Shootout"},
+                {"id": 7, "name": "FT", "description": "Full Time"},
+                {"id": 8, "name": "AET", "description": "After Extra Time"},
+                {"id": 9, "name": "PEN", "description": "After Penalties"},
+                {"id": 10, "name": "SUSP", "description": "Suspended"},
+                {"id": 11, "name": "INT", "description": "Interrupted"},
+                {"id": 12, "name": "PST", "description": "Postponed"},
+                {"id": 13, "name": "CANC", "description": "Cancelled"},
+                {"id": 14, "name": "ABD", "description": "Abandoned"},
+                {"id": 15, "name": "AWD", "description": "Technical Loss"},
+                {"id": 16, "name": "WO", "description": "Walk Over"}
+            ]
+            
+            for status in match_statuses_data:
+                db_status = self.db.query(MatchStatus).filter(
+                    MatchStatus.id == status["id"]
+                ).first()
+                
+                if not db_status:
+                    db_status = MatchStatus(
+                        id=status["id"],
+                        name=status["name"],
+                        description=status["description"]
+                    )
+                    self.db.add(db_status)
+                else:
+                    db_status.name = status["name"]
+                    db_status.description = status["description"]
+            
+            self.db.commit()
+            logger.info("Match statuses synced successfully")
+            self.update_sync_time('match_statuses')
+        except Exception as e:
+            logger.error(f"Error syncing match statuses: {e}")
+            self.db.rollback()
+    
+    def sync_matches(self):
+        """Sync matches for all leagues"""
+        logger.info("Syncing matches...")
+        if not self.should_sync('matches'):
+            logger.info("Matches sync skipped - recent sync exists")
+            return
+            
+        try:
+            # Get all leagues
+            leagues = self.db.query(League).all()
+            
+            for league in leagues:
+                try:
+                    # Get current season
+                    current_season = 2024  # You might want to get this dynamically
+                    
+                    # Fetch matches for this league and season
+                    response = self.football_api.get_matches(league.id, current_season)
+                    
+                    if response and 'response' in response:
+                        for match_data in response['response']:
+                            try:
+                                # Extract match data
+                                match = Match(
+                                    id=match_data['fixture']['id'],
+                                    league_id=league.id,
+                                    home_team_id=match_data['teams']['home']['id'],
+                                    away_team_id=match_data['teams']['away']['id'],
+                                    status_id=self.get_status_id(match_data['fixture']['status']['short']),
+                                    match_date=match_data['fixture']['date'],
+                                    venue=match_data['fixture']['venue']['name'],
+                                    referee=match_data['fixture']['referee'],
+                                    home_score=match_data['goals']['home'],
+                                    away_score=match_data['goals']['away']
+                                )
+                                
+                                existing = self.db.query(Match).filter(Match.id == match.id).first()
+                                if existing:
+                                    for key, value in match.__dict__.items():
+                                        if not key.startswith('_') and value is not None:
+                                            setattr(existing, key, value)
+                                else:
+                                    self.db.add(match)
+                                
+                            except Exception as e:
+                                logger.error(f"Error processing match data: {e}")
+                                continue
+                        
+                        self.db.commit()
+                        logger.info(f"Matches for league {league.name} synced successfully")
+                    else:
+                        logger.warning(f"No valid response data for league {league.name}")
+                        
+                except Exception as e:
+                    logger.error(f"Error fetching matches for league {league.name}: {e}")
+                    self.db.rollback()
+                    continue
+            
+            self.update_sync_time('matches')
+            logger.info("Matches sync completed")
+        except Exception as e:
+            logger.error(f"Error in matches sync process: {e}")
+            self.db.rollback()
+    
+    def get_status_id(self, status_short):
+        """Get status ID from short name"""
+        status = self.db.query(MatchStatus).filter(MatchStatus.name == status_short).first()
+        return status.id if status else None
+    
     async def sync_all(self):
         """Sync all data in correct order"""
         try:
@@ -338,7 +501,14 @@ class DataSyncService:
                 self.db.commit()
                 logger.info("Positions created successfully")
             
-            # 2. Then sync other static data
+            # 2. Sync event types and match statuses
+            logger.info("Syncing event types...")
+            self.sync_event_types()
+            
+            logger.info("Syncing match statuses...")
+            self.sync_match_statuses()
+            
+            # 3. Then sync other static data
             logger.info("Syncing countries...")
             self.sync_countries()
             
@@ -348,14 +518,65 @@ class DataSyncService:
             logger.info("Syncing teams...")
             self.sync_teams()
             
-            # 3. Finally sync players (depends on positions and teams)
+            # 4. Finally sync players and matches
             logger.info("Syncing players...")
             self.sync_players()
+            
+            logger.info("Syncing matches...")
+            self.sync_matches()
             
             logger.info("All data synced successfully")
         except Exception as e:
             logger.error(f"Error during sync_all: {e}")
             self.db.rollback()
+            raise
+
+    def sync_daily_matches(self):
+        """Sync matches for today"""
+        try:
+            today = self.football_api.get_current_date()
+            matches_data = self.football_api.get_matches(today)
+            
+            if not matches_data or 'response' not in matches_data:
+                logger.error("No match data returned from API")
+                return "No match data returned"
+            
+            matches_count = 0
+            for match in matches_data['response']:
+                # Check if match already exists
+                existing_match = self.db.query(Match).filter(Match.api_id == match['fixture']['id']).first()
+                
+                if existing_match:
+                    # Update existing match
+                    existing_match.status = match['fixture']['status']['short']
+                    existing_match.home_score = match['goals']['home'] if match['goals']['home'] is not None else 0
+                    existing_match.away_score = match['goals']['away'] if match['goals']['away'] is not None else 0
+                    existing_match.last_updated = datetime.now()
+                else:
+                    # Create new match
+                    new_match = Match(
+                        api_id=match['fixture']['id'],
+                        league_id=match['league']['id'],
+                        home_team_id=match['teams']['home']['id'],
+                        away_team_id=match['teams']['away']['id'],
+                        home_score=match['goals']['home'] if match['goals']['home'] is not None else 0,
+                        away_score=match['goals']['away'] if match['goals']['away'] is not None else 0,
+                        status=match['fixture']['status']['short'],
+                        match_date=datetime.fromisoformat(match['fixture']['date'].replace('Z', '+00:00')),
+                        last_updated=datetime.now()
+                    )
+                    self.db.add(new_match)
+                    matches_count += 1
+                
+            # Explicitly commit the transaction
+            self.db.commit()
+            
+            logger.info(f"Synced {matches_count} matches for {today}")
+            return f"Synced {matches_count} matches"
+            
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error in sync_daily_matches: {str(e)}")
             raise
 
 class DataFetchStrategy:

@@ -7,6 +7,10 @@ from json.decoder import JSONDecodeError
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 import os
+from functools import lru_cache
+from sqlalchemy.orm import Session
+from app.database import SessionLocal
+from app.sql_models.models import Match, Team
 
 load_dotenv()
 
@@ -26,14 +30,11 @@ class FootballAPIService:
         major_leagues (dict): Configuration for supported major leagues
     """
     def __init__(self):
-        self.api_key = os.getenv('FOOTBALL_API_KEY')
-        if not self.api_key:
-            logger.error("Football API key not found in environment variables")
-            raise ValueError("Football API key not found in environment variables")
-            
-        self.base_url = "https://v3.football.api-sports.io"
+        self.base_url = settings.API_BASE_URL
+        self.api_key = settings.FOOTBALL_API_KEY
         self.headers = {
-            'x-apisports-key': self.api_key
+            'x-rapidapi-host': settings.RAPIDAPI_HOST,
+            'x-rapidapi-key': self.api_key
         }
         self._test_api_key_sync()
         
@@ -80,11 +81,12 @@ class FootballAPIService:
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format")
 
-    def get_team(self, team_id: int = None):
-        """Get team information by ID."""
+    @lru_cache(maxsize=128)
+    def get_team(self, team_id: int):
+        """Cache team data as it rarely changes"""
         try:
             url = f"{self.base_url}/teams"
-            params = {'id': team_id} if team_id else {}
+            params = {'id': team_id}
 
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
             
@@ -283,6 +285,7 @@ class FootballAPIService:
             if events_response.status_code == 200:
                 events_data = events_response.json()
                 if events_data and 'response' in events_data:
+                    match_data['response'][0]['events'] = events_data['response']
                     substitutions = [
                         event for event in events_data['response']
                         if event.get('type') == 'subst'
@@ -617,3 +620,17 @@ class FootballAPIService:
         
         logger.error(f"Failed to fetch coach data: {response.status_code}")
         return None
+
+    def _fetch_from_api(self, endpoint: str):
+        """Fetch data from the API"""
+        try:
+            response = requests.get(f"{self.base_url}{endpoint}", headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail="API request failed"
+                )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error fetching data from API: {str(e)}")
+            raise

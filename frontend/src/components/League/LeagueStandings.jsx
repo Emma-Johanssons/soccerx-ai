@@ -15,7 +15,7 @@ const LeagueStandings = ({ leagueId }) => {
       try {
         // First, fetch league info to get the current season
         const leagueResponse = await axios.get(
-          `http://localhost:8000/api/leagues/${leagueId}`
+          `${process.env.REACT_APP_API_BASE_URL}/api/leagues/${leagueId}`
         );
 
         if (leagueResponse.data?.data?.seasons?.[0]?.year) {
@@ -41,7 +41,7 @@ const LeagueStandings = ({ leagueId }) => {
         console.log(`Fetching standings for season ${currentSeason}`); // Debug log
 
         const response = await axios.get(
-          `http://localhost:8000/api/standings/${leagueId}/${currentSeason}`
+          `${process.env.REACT_APP_API_BASE_URL}/api/standings/${leagueId}/${currentSeason}`
         );
 
         console.log("Standings response:", response.data); // Debug log

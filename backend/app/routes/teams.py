@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..api_service.football_api import FootballAPIService
-from ..services.celery import celery
-from ..tasks import fetch_team_statistics
+from app.base_celery import celery
+from ..tasks.tasks import fetch_team_statistics
 from ..sql_models.models import Team, TeamStatistics, Player, Position
 from ..services.data_sync import DataSyncService
 import logging
