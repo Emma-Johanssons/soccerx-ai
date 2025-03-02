@@ -15,12 +15,10 @@ services:
 
   db:
     image: postgres:15
-    env_file:
-      - .env
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=soccerai-server
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -43,18 +41,14 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soccerai-server
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-  
-  
 
   celery_worker:
     build: .
-    command: celery -A app.base_celery:app worker --loglevel=info
+    command: celery -A app.base_celery worker --loglevel=info
     volumes:
       - .:/app
     depends_on:
@@ -62,16 +56,14 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soccerai-server
       - REDIS_HOST=redis
       - REDIS_PORT=6379
 
   celery_beat:
     build: .
-    command: celery -A app.base_celery:app beat --loglevel=info
+    command: celery -A app.base_celery beat --loglevel=info
     volumes:
       - .:/app
     depends_on:
@@ -79,20 +71,16 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
-    env_file:
-      - .env
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/soccerai-server
       - REDIS_HOST=redis
       - REDIS_PORT=6379
 
   pgadmin:
     image: dpage/pgadmin4
-    env_file:
-      - .env
     environment:
-      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL}
-      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD}
+      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
     ports:
       - "8080:80"
     depends_on:

@@ -316,21 +316,17 @@ class DataSyncService:
     def sync_event_types(self):
         """Sync event types to database"""
         logger.info("Syncing event types...")
-        if not self.should_sync('event_types'):
-            logger.info("Event types sync skipped - recent sync exists")
-            return
-            
         try:
             # Define standard event types
             event_types_data = [
-                {"id": 1, "name": "Goal", "description": "Goal scored"},
-                {"id": 2, "name": "Card", "description": "Card shown"},
-                {"id": 3, "name": "Substitution", "description": "Player substitution"},
-                {"id": 4, "name": "VAR", "description": "VAR decision"},
-                {"id": 5, "name": "Penalty", "description": "Penalty awarded"},
-                {"id": 6, "name": "Missed Penalty", "description": "Penalty missed"},
-                {"id": 7, "name": "Own Goal", "description": "Own goal scored"},
-                {"id": 8, "name": "Assist", "description": "Assist for goal"}
+                {"id": 1, "event_name": "Goal", "description": "Goal scored"},
+                {"id": 2, "event_name": "Card", "description": "Card shown"},
+                {"id": 3, "event_name": "Substitution", "description": "Player substitution"},
+                {"id": 4, "event_name": "VAR", "description": "VAR decision"},
+                {"id": 5, "event_name": "Penalty", "description": "Penalty awarded"},
+                {"id": 6, "event_name": "Missed Penalty", "description": "Penalty missed"},
+                {"id": 7, "event_name": "Own Goal", "description": "Own goal scored"},
+                {"id": 8, "event_name": "Assist", "description": "Assist for goal"}
             ]
             
             for event_type in event_types_data:
@@ -341,13 +337,11 @@ class DataSyncService:
                 if not db_event_type:
                     db_event_type = EventType(
                         id=event_type["id"],
-                        name=event_type["name"],
-                        description=event_type["description"]
+                        event_name=event_type["event"],
                     )
                     self.db.add(db_event_type)
                 else:
-                    db_event_type.name = event_type["name"]
-                    db_event_type.description = event_type["description"]
+                    db_event_type.event_name = event_type["event"]
             
             self.db.commit()
             logger.info("Event types synced successfully")
@@ -355,33 +349,29 @@ class DataSyncService:
         except Exception as e:
             logger.error(f"Error syncing event types: {e}")
             self.db.rollback()
-    
+        
     def sync_match_statuses(self):
         """Sync match statuses to database"""
         logger.info("Syncing match statuses...")
-        if not self.should_sync('match_statuses'):
-            logger.info("Match statuses sync skipped - recent sync exists")
-            return
-            
         try:
             # Define standard match statuses
             match_statuses_data = [
-                {"id": 1, "name": "NS", "description": "Not Started"},
-                {"id": 2, "name": "1H", "description": "First Half"},
-                {"id": 3, "name": "HT", "description": "Half Time"},
-                {"id": 4, "name": "2H", "description": "Second Half"},
-                {"id": 5, "name": "ET", "description": "Extra Time"},
-                {"id": 6, "name": "P", "description": "Penalty Shootout"},
-                {"id": 7, "name": "FT", "description": "Full Time"},
-                {"id": 8, "name": "AET", "description": "After Extra Time"},
-                {"id": 9, "name": "PEN", "description": "After Penalties"},
-                {"id": 10, "name": "SUSP", "description": "Suspended"},
-                {"id": 11, "name": "INT", "description": "Interrupted"},
-                {"id": 12, "name": "PST", "description": "Postponed"},
-                {"id": 13, "name": "CANC", "description": "Cancelled"},
-                {"id": 14, "name": "ABD", "description": "Abandoned"},
-                {"id": 15, "name": "AWD", "description": "Technical Loss"},
-                {"id": 16, "name": "WO", "description": "Walk Over"}
+                {"id": 1, "status_name": "NS", "description": "Not Started"},
+                {"id": 2, "status_name": "1H", "description": "First Half"},
+                {"id": 3, "status_name": "HT", "description": "Half Time"},
+                {"id": 4, "status_name": "2H", "description": "Second Half"},
+                {"id": 5, "status_name": "ET", "description": "Extra Time"},
+                {"id": 6, "status_name": "P", "description": "Penalty Shootout"},
+                {"id": 7, "status_name": "FT", "description": "Full Time"},
+                {"id": 8, "status_name": "AET", "description": "After Extra Time"},
+                {"id": 9, "status_name": "PEN", "description": "After Penalties"},
+                {"id": 10, "status_name": "SUSP", "description": "Suspended"},
+                {"id": 11, "status_name": "INT", "description": "Interrupted"},
+                {"id": 12, "status_name": "PST", "description": "Postponed"},
+                {"id": 13, "status_name": "CANC", "description": "Cancelled"},
+                {"id": 14, "status_name": "ABD", "description": "Abandoned"},
+                {"id": 15, "status_name": "AWD", "description": "Technical Loss"},
+                {"id": 16, "status_name": "WO", "description": "Walk Over"}
             ]
             
             for status in match_statuses_data:
@@ -392,13 +382,11 @@ class DataSyncService:
                 if not db_status:
                     db_status = MatchStatus(
                         id=status["id"],
-                        name=status["name"],
-                        description=status["description"]
+                        status_name=status["status"],
                     )
                     self.db.add(db_status)
                 else:
-                    db_status.name = status["name"]
-                    db_status.description = status["description"]
+                    db_status.status_name = status["status"]
             
             self.db.commit()
             logger.info("Match statuses synced successfully")
@@ -471,9 +459,70 @@ class DataSyncService:
             logger.error(f"Error in matches sync process: {e}")
             self.db.rollback()
     
+    def sync_live_matches(self):
+        """Sync live matches from the API"""
+        try:
+            logger.info("Syncing live matches...")
+            
+            # Use the existing get_matches method with a "live" parameter
+            # You can modify this to match how your API expects live matches to be requested
+            response = self.football_api.get_matches(date="live")
+            
+            if not response or 'response' not in response:
+                logger.info("No live matches found")
+                return True
+                
+            matches_count = 0
+            for match_data in response['response']:
+                try:
+                    # Check if match already exists
+                    match_id = match_data['fixture']['id']
+                    existing_match = self.db.query(Match).filter(Match.id == match_id).first()
+                    
+                    # Extract match status
+                    status_short = match_data['fixture']['status']['short']
+                    status_id = self.get_status_id(status_short)
+                    
+                    if existing_match:
+                        # Update existing match
+                        existing_match.match_status_id = status_id
+                        existing_match.score_home = match_data['goals']['home']
+                        existing_match.score_away = match_data['goals']['away']
+                    else:
+                        # Create new match
+                        new_match = Match(
+                            id=match_id,
+                            home_team_id=match_data['teams']['home']['id'],
+                            away_team_id=match_data['teams']['away']['id'],
+                            match_status_id=status_id,
+                            date=match_data['fixture']['date'],
+                            stadium=match_data['fixture']['venue']['name'] if 'venue' in match_data['fixture'] and match_data['fixture']['venue'] else None,
+                            referee=match_data['fixture']['referee'],
+                            score_home=match_data['goals']['home'],
+                            score_away=match_data['goals']['away']
+                        )
+                        self.db.add(new_match)
+                    
+                    matches_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing live match data: {str(e)}")
+                    continue
+                    
+            # Commit changes
+            self.db.commit()
+            
+            logger.info(f"Synced {matches_count} live matches")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error syncing live matches: {str(e)}")
+            self.db.rollback()
+            return False
+
     def get_status_id(self, status_short):
         """Get status ID from short name"""
-        status = self.db.query(MatchStatus).filter(MatchStatus.name == status_short).first()
+        status = self.db.query(MatchStatus).filter(MatchStatus.status == status_short).first()
         return status.id if status else None
     
     async def sync_all(self):

@@ -112,10 +112,16 @@ class FootballAPIService:
             raise HTTPException(status_code=500, detail="Failed to fetch team data")
 
     def get_matches(self, date: str):
-        """Fetch matches for a specific date"""
+        """Fetch matches for a specific date or live matches"""
         try:
             url = f"{self.base_url}/fixtures"
-            params = {'date': date}
+            params = {}
+            
+            if date == "live":
+                params['live'] = "all"
+            else:
+                params['date'] = date
+                
             logger.info(f"Fetching matches with params: {params}")
             
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
@@ -491,6 +497,8 @@ class FootballAPIService:
         except Exception as e:
             logger.error(f"Error in get_player_statistics: {str(e)}")
             return None
+    
+    
 
     def get_team_info(self, team_id: int):
         """Get team information"""
