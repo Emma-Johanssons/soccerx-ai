@@ -45,7 +45,7 @@ const SearchResults = () => {
 
           // Fetch league details
           const response = await axios.get(
-            `http://localhost:8000/api/leagues/${leagueId}`
+            `${process.env.REACT_APP_API_BASE_URL}/api/leagues/${leagueId}`
           );
           const leagueData = response.data;
 
@@ -58,7 +58,9 @@ const SearchResults = () => {
 
         // If no league found, fetch general search results
         const response = await axios.get(
-          `http://localhost:8000/api/search?q=${encodeURIComponent(query)}`
+          `${
+            process.env.REACT_APP_API_BASE_URL
+          }/api/search?q=${encodeURIComponent(query)}`
         );
         setResults(response.data.data || []);
       } catch (error) {

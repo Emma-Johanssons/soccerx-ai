@@ -50,7 +50,7 @@ const PlayerPage = () => {
 
         const [currentResponse, historyResponse] = await Promise.all([
           axios.get(
-            `http://localhost:8000/api/teams/${teamId}/players/${playerId}`,
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${teamId}/players/${playerId}`,
             {
               headers: {
                 "Cache-Control": "no-cache",
@@ -60,7 +60,7 @@ const PlayerPage = () => {
             }
           ),
           axios.get(
-            `http://localhost:8000/api/teams/${teamId}/players/${playerId}/history`,
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${teamId}/players/${playerId}/history`,
             {
               headers: {
                 "Cache-Control": "no-cache",

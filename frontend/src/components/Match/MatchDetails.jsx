@@ -28,6 +28,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
   const [teamStats, setTeamStats] = useState(null);
   const [players, setPlayers] = useState([]);
   const [season, setSeason] = useState(null);
+  const [statistics, setStatistics] = useState(null);
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -36,7 +37,7 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
         setError(null);
 
         const response = await axios.get(
-          `http://localhost:8000/api/matches/${matchId}`
+          `${process.env.REACT_APP_API_BASE_URL}/api/matches/${matchId}`
         );
 
         if (response.data?.data) {
@@ -64,10 +65,10 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
 
           // Fetch team data if not provided
           const homeTeamResponse = await axios.get(
-            `http://localhost:8000/api/teams/${matchData.teams.home.id}`
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${matchData.teams.home.id}`
           );
           const awayTeamResponse = await axios.get(
-            `http://localhost:8000/api/teams/${matchData.teams.away.id}`
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${matchData.teams.away.id}`
           );
 
           setTeamData({
@@ -77,18 +78,26 @@ const MatchDetails = ({ matchId, isOpen, onClose }) => {
 
           // Fetch team statistics
           const statsResponse = await axios.get(
-            `http://localhost:8000/api/teams/${matchData.teams.home.id}/statistics`
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${matchData.teams.home.id}/statistics`
           );
           setTeamStats(statsResponse.data.data);
 
           // Fetch players if needed
           const playersResponse = await axios.get(
-            `http://localhost:8000/api/teams/${matchData.teams.home.id}/players`
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${matchData.teams.home.id}/players`
           );
           setPlayers(playersResponse.data.data);
 
           // Assuming the season is part of the match data
           setSeason(matchData.season);
+
+          // If match is live or recently finished, fetch statistics
+          if (["1H", "2H", "HT", "FT"].includes(matchData.status)) {
+            const statsResponse = await axios.get(
+              `${process.env.REACT_APP_API_BASE_URL}/api/matches/${matchId}/statistics`
+            );
+            setStatistics(statsResponse.data);
+          }
         } else {
           console.error("No data in response:", response.data);
           setDetails(null);

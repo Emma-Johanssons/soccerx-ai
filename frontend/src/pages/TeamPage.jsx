@@ -146,7 +146,7 @@ const TeamPage = () => {
         // Fetch team data if not provided
         if (!location.state?.teamData) {
           const teamResponse = await axios.get(
-            `http://localhost:8000/api/teams/${id}`
+            `${process.env.REACT_APP_API_BASE_URL}/api/teams/${id}`
           );
           setTeamData(teamResponse.data.data[0]);
         } else {
@@ -155,7 +155,7 @@ const TeamPage = () => {
 
         // Fetch team statistics
         const statsResponse = await axios.get(
-          `http://localhost:8000/api/teams/${id}/statistics`
+          `${process.env.REACT_APP_API_BASE_URL}/api/teams/${id}/statistics`
         );
         console.log("Raw team statistics response:", statsResponse.data);
         console.log("Team stats:", statsResponse.data?.data?.overall?.team);
@@ -171,7 +171,7 @@ const TeamPage = () => {
 
         // Fetch team players
         const playersResponse = await axios.get(
-          `http://localhost:8000/api/teams/${id}/players`
+          `${process.env.REACT_APP_API_BASE_URL}/api/teams/${id}/players`
         );
 
         if (Array.isArray(playersResponse.data?.data?.players)) {
