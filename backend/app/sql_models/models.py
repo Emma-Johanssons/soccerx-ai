@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Time, Float, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Time, Float, Boolean, JSON
 from sqlalchemy.orm import relationship
 from ..database import Base
 from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
 
 
 
@@ -36,12 +37,19 @@ class Team(Base):
     away_matches = relationship("Match", foreign_keys="Match.away_team_id", back_populates="away_team")
     country = relationship("Country", back_populates="teams")
 
-    def is_stale(self) -> bool:
-        """Check if team data is older than 24 hours"""
-        if not self.last_updated:
-            return True
-        stale_threshold = datetime.utcnow() - timedelta(hours=24)
-        return self.last_updated < stale_threshold
+    def to_dict(self):
+        """Convert team to dictionary format"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "code": self.code,
+            "logo": self.logo_url,
+            "founded": self.founded,
+            "venue": {
+                "name": self.venue_name,
+                "capacity": self.venue_capacity
+            }
+        }
 
 class Player(Base):
     __tablename__ = "players"
@@ -166,8 +174,19 @@ class League(Base):
     name = Column(String)
     country_id = Column(Integer, ForeignKey("countries.id"))
     logo = Column(String, nullable=True)
+    type = Column(String, nullable=True)
     
     country = relationship("Country", back_populates="leagues")
+
+    def to_dict(self):
+        """Convert league to dictionary format"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": getattr(self, 'type', "League") if hasattr(self, 'type') else "League",
+            "logo": self.logo,
+            "country": self.country.country_name if self.country else None
+        }
 
 class Position(Base):
     __tablename__ = "positions"
@@ -192,17 +211,34 @@ class TeamStatistics(Base):
     team_id = Column(Integer, ForeignKey("teams.id"))
     season = Column(Integer)
     league_id = Column(Integer, ForeignKey("leagues.id"))
-    matches_played = Column(Integer)
-    wins = Column(Integer)
-    draws = Column(Integer)
-    losses = Column(Integer)
-    goals_for = Column(Integer)
-    goals_against = Column(Integer)
-    clean_sheets = Column(Integer)
+    matches_played = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    draws = Column(Integer, default=0)
+    losses = Column(Integer, default=0)
+    goals_for = Column(Integer, default=0)
+    goals_against = Column(Integer, default=0)
+    clean_sheets = Column(Integer, default=0)
+    form = Column(JSON, default=list)
     last_updated = Column(DateTime, default=datetime.utcnow)
 
     team = relationship("Team", backref="statistics")
     league = relationship("League")
+
+    def to_dict(self):
+        """Convert team statistics to dictionary format"""
+        return {
+            "team_id": self.team_id,
+            "season": self.season,
+            "league_id": self.league_id,
+            "matches_played": self.matches_played,
+            "wins": self.wins,
+            "draws": self.draws,
+            "losses": self.losses,
+            "goals_for": self.goals_for,
+            "goals_against": self.goals_against,
+            "clean_sheets": self.clean_sheets,
+            "last_updated": self.last_updated.isoformat()
+        }
 
 class PlayerStatistics(Base):
     __tablename__ = "player_statistics"
@@ -221,3 +257,22 @@ class PlayerStatistics(Base):
 
     player = relationship("Player", backref="statistics")
     league = relationship("League")
+
+class LeagueStandings(Base):
+    __tablename__ = "league_standings"
+    
+    id = Column(Integer, primary_key=True)
+    league_id = Column(Integer, ForeignKey("leagues.id"))
+    data = Column(JSON)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+    
+    league = relationship("League", backref="standings")
+
+    def to_dict(self):
+        """Convert standings to dictionary format"""
+        return {
+            "id": self.id,
+            "league_id": self.league_id,
+            "data": self.data,
+            "last_updated": self.last_updated.isoformat()
+        }

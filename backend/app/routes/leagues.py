@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..sql_models.models import League, Team
+from ..sql_models.models import League, Team, LeagueStandings
 from ..api_service.football_api import FootballAPIService
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -72,12 +73,34 @@ async def get_league(league_id: int, db: Session = Depends(get_db)):
         # First try to get from database
         league = db.query(League).filter(League.id == league_id).first()
         
+        # Try to get standings from database first
+        standings = db.query(LeagueStandings).filter(
+            LeagueStandings.league_id == league_id
+        ).first()
+        
         if league:
             # Get teams for this league from database
             teams = db.query(Team).filter(Team.league == league_id).all()
             
-            # Get standings from API (since they change frequently)
-            standings_response =  football_api.get_standings(league_id, 2024)
+            # If standings exist and are fresh (less than 24 hours old)
+            if standings and (datetime.now() - standings.last_updated) < timedelta(hours=24):
+                standings_data = standings.to_dict()  # Assuming you have a to_dict method
+            else:
+                # Get standings from API and store in database
+                standings_response = football_api.get_standings(league_id, 2024)
+                if standings_response and 'response' in standings_response:
+                    standings_data = standings_response['response'][0]['league']['standings']
+                    
+                    # Store or update standings in database
+                    if not standings:
+                        standings = LeagueStandings(league_id=league_id)
+                    
+                    standings.data = standings_data  # Assuming you store as JSON
+                    standings.last_updated = datetime.now()
+                    db.add(standings)
+                    db.commit()
+                else:
+                    standings_data = []
             
             return {
                 "status": "success",
@@ -95,7 +118,7 @@ async def get_league(league_id: int, db: Session = Depends(get_db)):
                         {
                             "year": 2024,
                             "current": True,
-                            "standings": standings_response['response'][0]['league']['standings'] if standings_response and 'response' in standings_response else []
+                            "standings": standings_data
                         }
                     ],
                     "teams": [

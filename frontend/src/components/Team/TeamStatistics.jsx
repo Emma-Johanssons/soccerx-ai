@@ -11,7 +11,7 @@ const TeamStatistics = ({ statistics }) => {
 
   // Ensure we have default values and properly structure the data
   const overall = {
-    ...statistics?.overall,
+    team: statistics?.overall?.team || {},
     fixtures: {
       played: { total: statistics?.overall?.fixtures?.played?.total || 0 },
       wins: { total: statistics?.overall?.fixtures?.wins?.total || 0 },
@@ -29,16 +29,15 @@ const TeamStatistics = ({ statistics }) => {
       },
     },
     clean_sheet: { total: statistics?.overall?.clean_sheet?.total || 0 },
-    team: statistics?.overall?.team || {},
+    form: statistics?.overall?.form || [],
   };
 
   const leagueStats = statistics?.by_league || [];
-  const form = statistics?.form || [];
 
   // Find the domestic league (prioritizing main domestic leagues)
   const domesticLeague = leagueStats.find(
     (stat) =>
-      stat.league?.type?.toLowerCase() === "league" &&
+      (!stat.league?.type || stat.league?.type?.toLowerCase() === "league") &&
       !stat.league?.name?.toLowerCase().includes("friendly") &&
       !stat.league?.name?.toLowerCase().includes("cup") &&
       !stat.league?.name?.toLowerCase().includes("champions") &&
@@ -169,11 +168,11 @@ const TeamStatistics = ({ statistics }) => {
       </div>
 
       {/* Form display only for overall stats */}
-      {showForm && form && form.length > 0 && (
+      {showForm && stats.form && stats.form.length > 0 && (
         <div className="mt-4">
           <p className="text-sm text-gray-600 mb-2">Last 5 matches:</p>
           <div className="flex gap-2">
-            {form.slice(0, 5).map((result, index) => (
+            {stats.form.slice(0, 5).map((result, index) => (
               <FormIndicator key={index} result={result} />
             ))}
           </div>
@@ -197,75 +196,22 @@ const TeamStatistics = ({ statistics }) => {
         </button>
       </div>
 
-      {/* Overall Statistics with Form */}
-      <div className="p-4 border rounded">
-        <div className="flex items-center gap-2 mb-3">
-          <img
-            src={overall.team.logo}
-            alt={overall.team.name}
-            className="w-6 h-6"
-          />
-          <h3 className="font-semibold">Overall Statistics {seasonDisplay}</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <p>Played: {overall.fixtures?.played?.total || 0}</p>
-            <p>Wins: {overall.fixtures?.wins?.total || 0}</p>
-            <p>Draws: {overall.fixtures?.draws?.total || 0}</p>
-            <p>Losses: {overall.fixtures?.loses?.total || 0}</p>
-          </div>
-          <div>
-            <p>Goals For: {overall.goals?.for?.total?.total || 0}</p>
-            <p>Goals Against: {overall.goals?.against?.total?.total || 0}</p>
-            <p>Clean Sheets: {overall.clean_sheet?.total || 0}</p>
-          </div>
-        </div>
+      {/* Overall Statistics */}
+      <StatBlock
+        stats={overall}
+        title={`Overall Statistics ${seasonDisplay}`}
+        showForm={true}
+      />
 
-        {form && form.length > 0 && (
-          <div className="mt-4">
-            <p className="text-sm text-gray-600 mb-2">Last 5 matches:</p>
-            <div className="flex gap-2">
-              {form.slice(0, 5).map((result, index) => (
-                <FormIndicator key={index} result={result} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Individual League Statistics */}
+      {/* League Statistics */}
       {showAllLeagues && leagueStats.length > 0 && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           {leagueStats.map((stats, index) => (
-            <div key={stats.league?.id || index} className="p-4 border rounded">
-              <div className="flex items-center gap-2 mb-3">
-                {stats.league?.logo && (
-                  <img
-                    src={stats.league.logo}
-                    alt={stats.league.name}
-                    className="w-6 h-6"
-                  />
-                )}
-                <h3 className="font-semibold">
-                  {stats.league?.name || `League ${index + 1}`}
-                </h3>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <p>Played: {stats.fixtures?.played?.total || 0}</p>
-                  <p>Wins: {stats.fixtures?.wins?.total || 0}</p>
-                  <p>Draws: {stats.fixtures?.draws?.total || 0}</p>
-                  <p>Losses: {stats.fixtures?.loses?.total || 0}</p>
-                </div>
-                <div>
-                  <p>Goals For: {stats.goals?.for?.total?.total || 0}</p>
-                  <p>
-                    Goals Against: {stats.goals?.against?.total?.total || 0}
-                  </p>
-                  <p>Clean Sheets: {stats.clean_sheet?.total || 0}</p>
-                </div>
-              </div>
-            </div>
+            <StatBlock
+              key={stats.league?.id || index}
+              stats={stats}
+              title={stats.league?.name || `League ${index + 1}`}
+            />
           ))}
         </div>
       )}

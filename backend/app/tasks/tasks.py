@@ -4,7 +4,7 @@ from app.database import SessionLocal
 from app.api_service.football_api import FootballAPIService
 from app.services.data_sync import DataSyncService
 from datetime import datetime, timedelta
-from app.sql_models.models import Team, Match, LastSync
+from app.sql_models.models import Team, Match, LastSync, TeamStatistics, League, Country
 logger = logging.getLogger(__name__)
 
 @app.task
@@ -14,9 +14,10 @@ def fetch_team_statistics(team_id: int):
     db = SessionLocal()
     try:
         football_api = FootballAPIService()
-        stats = football_api.get_team_statistics(team_id)
-        # Store in database
-        logger.info(f"Successfully fetched statistics for team {team_id}")
+        current_season = datetime.utcnow().year
+        if datetime.utcnow().month < 7:
+            current_season -= 1
+        stats = football_api.get_team_statistics(team_id, current_season)
         return stats
     except Exception as e:
         logger.error(f"Error fetching team statistics: {str(e)}")
@@ -25,18 +26,64 @@ def fetch_team_statistics(team_id: int):
         db.close()
 
 @app.task
+def sync_team_statistics():
+    """Celery task to sync team statistics"""
+    logger.info("Starting team statistics sync task")
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        result = sync_service.sync_team_statistics()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync_team_statistics task: {str(e)}")
+        raise
+    finally:
+        db.close()
+
+@app.task
+def sync_upcoming_matches():
+    """Celery task to sync upcoming matches"""
+    logger.info("Starting sync_upcoming_matches task")
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        result = sync_service.sync_upcoming_matches()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync_upcoming_matches task: {str(e)}")
+        raise
+    finally:
+        db.close()
+
+@app.task
+def sync_completed_matches():
+    """Celery task to sync completed matches"""
+    db = SessionLocal()
+    try:
+        football_api = FootballAPIService()
+        sync_service = DataSyncService(db, football_api)
+        result = sync_service.sync_completed_matches()
+        return result
+    except Exception as e:
+        logger.error(f"Error in sync_completed_matches task: {str(e)}")
+        raise
+    finally:
+        db.close()
+
+@app.task
 def sync_todays_matches():
-    """Sync today's matches task"""
+    """Celery task to sync today's matches"""
     logger.info("Starting sync_todays_matches task")
     db = SessionLocal()
     try:
         football_api = FootballAPIService()
         sync_service = DataSyncService(db, football_api)
-        sync_service.sync_todays_matches()
-        logger.info("Today's matches synced successfully")
-        return "Sync today's matches completed"
+        result = sync_service.sync_daily_matches()
+        return result
     except Exception as e:
-        logger.error(f"Error syncing today's matches: {str(e)}")
+        logger.error(f"Error in sync_todays_matches task: {str(e)}")
         raise
     finally:
         db.close()
@@ -201,4 +248,4 @@ def sync_statistics():
         logger.error(f"Error syncing statistics: {str(e)}")
         raise
     finally:
-        db.close() 
+        db.close()

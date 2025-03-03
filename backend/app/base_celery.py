@@ -59,13 +59,13 @@ app.conf.update(
             'task': 'app.tasks.tasks.sync_live_matches',
             'schedule': 60.0,  # Every minute
         },
-        'sync-todays-matches': {
-            'task': 'app.tasks.tasks.sync_todays_matches',
-            'schedule': 1800.0,  # Every 30 minutes
+        'sync-upcoming-matches': {
+            'task': 'app.tasks.tasks.sync_upcoming_matches',
+            'schedule': crontab(hour=6, minute=0),  # Every day at 6 AM
         },
-        'sync-daily-matches': {
-            'task': 'app.tasks.tasks.sync_daily_matches',
-            'schedule': crontab(hour=0, minute=0),  # Daily at midnight
+        'sync-completed-matches': {
+            'task': 'app.tasks.tasks.sync_completed_matches',
+            'schedule': crontab(hour=23, minute=30),  # Every day at 11:30 PM
         },
         'sync-daily-data': {
             'task': 'app.tasks.tasks.sync_daily_data',
@@ -78,6 +78,10 @@ app.conf.update(
         'sync-team-data': {
             'task': 'app.tasks.tasks.sync_team_data',
             'schedule': crontab(hour=4, minute=0, day_of_week=1),
+        },
+        'sync-team-statistics': {
+            'task': 'app.tasks.tasks.sync_team_statistics',
+            'schedule': crontab(hour='*/6', minute=0),  # Every 6 hours
         },
     }
 )
