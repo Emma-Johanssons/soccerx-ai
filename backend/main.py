@@ -17,6 +17,8 @@ from app.api_service.football_api import FootballAPIService
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from redis import asyncio as aioredis
+from sqlalchemy import inspect, Column, String, text
+from app.sql_models.models import League
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -99,3 +101,27 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error during startup: {e}")
         raise
+
+@app.on_event("startup")
+async def add_league_type_column():
+    """Add type column to League table if it doesn't exist"""
+    try:
+        inspector = inspect(engine)
+        columns = [col['name'] for col in inspector.get_columns('leagues')]
+        
+        if 'type' not in columns:
+            logger.info("Adding 'type' column to League table")
+            # Add column
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE leagues ADD COLUMN type VARCHAR'))
+            logger.info("Successfully added 'type' column to League table")
+            
+            # Verify the column was added
+            inspector = inspect(engine)
+            columns = [col['name'] for col in inspector.get_columns('leagues')]
+            if 'type' in columns:
+                logger.info("Verified 'type' column exists in League table")
+            else:
+                logger.error("Failed to add 'type' column to League table")
+    except Exception as e:
+        logger.error(f"Error adding 'type' column to League table: {e}")

@@ -406,21 +406,37 @@ class FootballAPIService:
             logger.error(f"Error fetching team matches: {str(e)}")
             return None
 
-    def get_team_statistics(self, team_id: int, league_id: int, season: int):
-        """Get team statistics for a specific league and season"""
+    def get_team_statistics(self, team_id: int, season: int = None, league_id: int = None):
+        """Get team statistics from API"""
         try:
-            url = f"{self.base_url}/teams/statistics"
-            params = {
-                'team': team_id,
-                'league': league_id,
-                'season': season
-            }
+            if season is None:
+                season = datetime.utcnow().year
+                if datetime.utcnow().month < 7:
+                    season -= 1
+
+            # First try major leagues
+            all_stats = []
+            for league_name, league_info in self.major_leagues.items():
+                url = f"{self.base_url}/teams/statistics"
+                params = {
+                    'team': team_id,
+                    'season': season,
+                    'league': league_info['id']
+                }
+                
+                logger.info(f"Fetching team statistics for team {team_id}, league {league_info['id']}, season {season}")
+                response = requests.get(url, headers=self.headers, params=params)
+                data = self._handle_response(response)
+                
+                if data and 'response' in data and data.get('results', 0) > 0:
+                    logger.info(f"Found statistics for {league_name}")
+                    all_stats.append(data['response'])
             
-            response = requests.get(url, headers=self.headers, params=params)
-            return self._handle_response(response)
+            return {'response': all_stats}
+                
         except Exception as e:
             logger.error(f"Error fetching team statistics: {str(e)}")
-            return None
+            raise
 
     def get_player_fixture_statistics(self, fixture_id: int, team_id: int = None):
         """Get player statistics from a specific fixture"""
